@@ -51,12 +51,11 @@ pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124
 Check this [issue](https://github.com/conda/conda/issues/13812#issuecomment-2071445372) for more details.
 
 ### Training
-The below training scripts have been tested on 8 H200 GPUs.
+The below training scripts have been tested on a single GPU setup.
 
 Example script for training JiT-B/16 on ImageNet 256x256 for 600 epochs:
 ```
-torchrun --nproc_per_node=8 --nnodes=1 --node_rank=0 \
-main_jit.py \
+python main_jit.py \
 --model JiT-B/16 \
 --proj_dropout 0.0 \
 --P_mean -0.8 --P_std 0.8 \
@@ -70,8 +69,7 @@ main_jit.py \
 
 Example script for training JiT-B/32 on ImageNet 512x512 for 600 epochs:
 ```
-torchrun --nproc_per_node=8 --nnodes=1 --node_rank=0 \
-main_jit.py \
+python main_jit.py \
 --model JiT-B/32 \
 --proj_dropout 0.0 \
 --P_mean -0.8 --P_std 0.8 \
@@ -85,8 +83,7 @@ main_jit.py \
 
 Example script for training JiT-H/16 on ImageNet 256x256 for 600 epochs:
 ```
-torchrun --nproc_per_node=8 --nnodes=1 --node_rank=0 \
-main_jit.py \
+python main_jit.py \
 --model JiT-H/16 \
 --proj_dropout 0.2 \
 --P_mean -0.8 --P_std 0.8 \
@@ -104,8 +101,7 @@ PyTorch pre-trained models are available [here](https://www.dropbox.com/scl/fo/3
 
 Evaluate pre-trained JiT-B:
 ```
-torchrun --nproc_per_node=8 --nnodes=1 --node_rank=0 \
-main_jit.py \
+python main_jit.py \
 --model JiT-B/16 (or JiT-B/32) \
 --img_size 256 (or 512) --noise_scale 1.0 (or 2.0) \
 --gen_bsz 256 --num_images 50000 --cfg 3.0 --interval_min 0.1 --interval_max 1.0 \
@@ -115,8 +111,7 @@ main_jit.py \
 
 Evaluate pre-trained JiT-L:
 ```
-torchrun --nproc_per_node=8 --nnodes=1 --node_rank=0 \
-main_jit.py \
+python main_jit.py \
 --model JiT-L/16 (or JiT-L/32) \
 --img_size 256 (or 512) --noise_scale 1.0 (or 2.0) \
 --gen_bsz 256 --num_images 50000 --cfg 2.4 (or 2.5) --interval_min 0.1 --interval_max 1.0 \
@@ -126,8 +121,7 @@ main_jit.py \
 
 Evaluate pre-trained JiT-H:
 ```
-torchrun --nproc_per_node=8 --nnodes=1 --node_rank=0 \
-main_jit.py \
+python main_jit.py \
 --model JiT-H/16 (or JiT-H/32) \
 --img_size 256 (or 512) --noise_scale 1.0 (or 2.0) \
 --gen_bsz 256 --num_images 50000 --cfg 2.2 (or 2.3) --interval_min 0.1 --interval_max 1.0 \
