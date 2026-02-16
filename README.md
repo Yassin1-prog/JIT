@@ -28,6 +28,18 @@ The original implementation was in JAX+TPU. This re-implementation is in PyTorch
 ### Dataset
 Download [ImageNet](http://image-net.org/download) dataset, and place it in your `IMAGENET_PATH`.
 
+The expected directory structure:
+```
+IMAGENET_PATH/
+├── n01440764/  (class folder)
+│   ├── image1.JPEG
+│   ├── image2.JPEG
+│   └── ...
+├── n01443537/
+│   └── ...
+└── ... (1000 class folders)
+```
+
 ### Installation
 
 Download the code:

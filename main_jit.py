@@ -87,7 +87,7 @@ def get_args_parser():
 
     # dataset
     parser.add_argument('--data_path', default='./data/imagenet', type=str,
-                        help='Path to the dataset')
+                        help='Path to the dataset root directory (should contain class folders directly)')
     parser.add_argument('--class_num', default=1000, type=int)
 
     # checkpointing
@@ -143,7 +143,7 @@ def main(args):
         transforms.PILToTensor()
     ])
 
-    dataset_train = datasets.ImageFolder(os.path.join(args.data_path, 'train'), transform=transform_train)
+    dataset_train = datasets.ImageFolder(args.data_path, transform=transform_train)
     print(dataset_train)
 
     sampler_train = torch.utils.data.DistributedSampler(

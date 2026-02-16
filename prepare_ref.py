@@ -8,7 +8,7 @@ from util.crop import center_crop_arr
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_path', type=str, required=True,
-                        help='Path to ImageNet root directory')
+                        help='Path to ImageNet root directory (should contain class folders directly)')
     parser.add_argument('--output_path', type=str, default='imagenet-train-256',
                         help='Folder where transformed images will be saved')
     parser.add_argument('--img_size', type=int, default=256,
@@ -22,7 +22,7 @@ def main():
     ])
 
     dataset_train = datasets.ImageFolder(
-        os.path.join(args.data_path, 'train'),
+        args.data_path,
         transform=transform_train
     )
 
