@@ -37,6 +37,30 @@ class BottleneckPatchEmbed(nn.Module):
         return x
 
 
+class StandardPatchEmbed(nn.Module):
+    """ Standard Vision Transformer Patch Embedding
+    Single Conv2d projection: in_chans -> embed_dim directly
+    """
+    def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=768, bias=True):
+        super().__init__()
+        img_size = (img_size, img_size)
+        patch_size = (patch_size, patch_size)
+        num_patches = (img_size[1] // patch_size[1]) * (img_size[0] // patch_size[0])
+        self.img_size = img_size
+        self.patch_size = patch_size
+        self.num_patches = num_patches
+
+        # Single Conv2d projection (standard ViT approach)
+        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=bias)
+
+    def forward(self, x):
+        B, C, H, W = x.shape
+        assert H == self.img_size[0] and W == self.img_size[1], \
+            f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
+        x = self.proj(x).flatten(2).transpose(1, 2)
+        return x
+
+
 class TimestepEmbedder(nn.Module):
     """
     Embeds scalar timesteps into vector representations.
@@ -237,8 +261,11 @@ class JiT(nn.Module):
         self.t_embedder = TimestepEmbedder(hidden_size)
         self.y_embedder = LabelEmbedder(num_classes, hidden_size)
 
-        # linear embed
-        self.x_embedder = BottleneckPatchEmbed(input_size, patch_size, in_channels, bottleneck_dim, hidden_size, bias=True)
+        # linear embed - use standard patch embed for patch_size=2, bottleneck for others
+        if patch_size == 2:
+            self.x_embedder = StandardPatchEmbed(input_size, patch_size, in_channels, hidden_size, bias=True)
+        else:
+            self.x_embedder = BottleneckPatchEmbed(input_size, patch_size, in_channels, bottleneck_dim, hidden_size, bias=True)
 
         # use fixed sin-cos embedding
         num_patches = self.x_embedder.num_patches
@@ -290,11 +317,19 @@ class JiT(nn.Module):
         self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
 
         # Initialize patch_embed like nn.Linear (instead of nn.Conv2d):
-        w1 = self.x_embedder.proj1.weight.data
-        nn.init.xavier_uniform_(w1.view([w1.shape[0], -1]))
-        w2 = self.x_embedder.proj2.weight.data
-        nn.init.xavier_uniform_(w2.view([w2.shape[0], -1]))
-        nn.init.constant_(self.x_embedder.proj2.bias, 0)
+        if isinstance(self.x_embedder, StandardPatchEmbed):
+            # Standard embedder has single proj layer
+            w = self.x_embedder.proj.weight.data
+            nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
+            if self.x_embedder.proj.bias is not None:
+                nn.init.constant_(self.x_embedder.proj.bias, 0)
+        else:
+            # Bottleneck embedder has proj1 and proj2
+            w1 = self.x_embedder.proj1.weight.data
+            nn.init.xavier_uniform_(w1.view([w1.shape[0], -1]))
+            w2 = self.x_embedder.proj2.weight.data
+            nn.init.xavier_uniform_(w2.view([w2.shape[0], -1]))
+            nn.init.constant_(self.x_embedder.proj2.bias, 0)
 
         # Initialize label embedding table:
         nn.init.normal_(self.y_embedder.embedding_table.weight, std=0.02)
@@ -358,6 +393,14 @@ class JiT(nn.Module):
 
         return output
 
+# hidden_size should be divisible by num_heads for attention to work properly Equal to 64 is standard for papers.
+def JiT_T_2(**kwargs):
+    return JiT(depth=6, hidden_size=384, num_heads=6,
+               bottleneck_dim=0, in_context_len=8, in_context_start=2, patch_size=2, **kwargs)
+
+def JiT_S_2(**kwargs):
+    return JiT(depth=12, hidden_size=512, num_heads=8,
+               bottleneck_dim=0, in_context_len=8, in_context_start=4, patch_size=2, **kwargs)
 
 def JiT_B_16(**kwargs):
     return JiT(depth=12, hidden_size=768, num_heads=12,
@@ -383,8 +426,9 @@ def JiT_H_32(**kwargs):
     return JiT(depth=32, hidden_size=1280, num_heads=16,
                bottleneck_dim=256, in_context_len=32, in_context_start=10, patch_size=32, **kwargs)
 
-
 JiT_models = {
+    'JiT-T/2': JiT_T_2,
+    'JiT-S/2': JiT_S_2,
     'JiT-B/16': JiT_B_16,
     'JiT-B/32': JiT_B_32,
     'JiT-L/16': JiT_L_16,

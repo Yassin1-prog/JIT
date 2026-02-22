@@ -136,6 +136,9 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
             fid_statistics_file = 'fid_stats/jit_in256_stats.npz'
         elif args.img_size == 512:
             fid_statistics_file = 'fid_stats/jit_in512_stats.npz'
+        elif args.img_size == 32:
+            # for debugging will be initially for the 10k split of cifar10
+            fid_statistics_file = 'fid_stats/jit_in32_stats.npz'
         else:
             raise NotImplementedError
         metrics_dict = torch_fidelity.calculate_metrics(

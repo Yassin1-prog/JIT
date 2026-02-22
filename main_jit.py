@@ -26,7 +26,7 @@ def get_args_parser():
     # architecture
     parser.add_argument('--model', default='JiT-B/16', type=str, metavar='MODEL',
                         help='Name of the model to train')
-    parser.add_argument('--img_size', default=256, type=int, help='Image size')
+    parser.add_argument('--img_size', default=32, type=int, help='Image size')
     parser.add_argument('--attn_dropout', type=float, default=0.0, help='Attention dropout rate')
     parser.add_argument('--proj_dropout', type=float, default=0.0, help='Projection dropout rate')
 
@@ -76,7 +76,7 @@ def get_args_parser():
                         help='CFG interval min')
     parser.add_argument('--interval_max', default=1.0, type=float,
                         help='CFG interval max')
-    parser.add_argument('--num_images', default=50000, type=int,
+    parser.add_argument('--num_images', default=500, type=int,
                         help='Number of images to generate')
     parser.add_argument('--eval_freq', type=int, default=40,
                         help='Frequency (in epochs) for evaluation')
@@ -86,9 +86,9 @@ def get_args_parser():
                         help='Generation batch size')
 
     # dataset
-    parser.add_argument('--data_path', default='./data/imagenet', type=str,
+    parser.add_argument('--data_path', default='./data/cifar10/test', type=str,
                         help='Path to the dataset root directory (should contain class folders directly)')
-    parser.add_argument('--class_num', default=1000, type=int)
+    parser.add_argument('--class_num', default=10, type=int)
 
     # checkpointing
     parser.add_argument('--output_dir', default='./output_dir',
