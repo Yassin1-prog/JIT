@@ -59,7 +59,7 @@ def get_args_parser():
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                         help='Starting epoch')
-    parser.add_argument('--num_workers', default=12, type=int)
+    parser.add_argument('--num_workers', default=4, type=int) # per kaggle recommendation
     parser.add_argument('--pin_mem', action='store_true',
                         help='Pin CPU memory in DataLoader for faster GPU transfers')
     parser.add_argument('--no_pin_mem', action='store_false', dest='pin_mem')
@@ -190,7 +190,11 @@ def main(args):
     # Resume from checkpoint if provided
     checkpoint_path = os.path.join(args.resume, "checkpoint-last.pth") if args.resume else None
     if checkpoint_path and os.path.exists(checkpoint_path):
-        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        # IN NEWER PYTORCH VERSIONS LIKE IN KAGGLE IT DEFAULTS TO TRUE AND BLOCKS LOADING CHECKPOINT.PTH
+        # DUE TO SECUIRITY ISSUES. SO NEED TO SPECIFY weights_only=False, ALTERNATIVE SOLUTION IS :
+        # Tell PyTorch that argparse.Namespace is safe to load
+        #torch.serialization.add_safe_globals([argparse.Namespace])
+        checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
         model_without_ddp.load_state_dict(checkpoint['model'])
 
         ema_state_dict1 = checkpoint['model_ema1']
