@@ -399,7 +399,7 @@ def JiT_T_2(**kwargs):
                bottleneck_dim=0, in_context_len=8, in_context_start=2, patch_size=2, **kwargs)
 
 def JiT_S_2(**kwargs):
-    return JiT(depth=12, hidden_size=512, num_heads=8,
+    return JiT(depth=10, hidden_size=512, num_heads=8,
                bottleneck_dim=0, in_context_len=8, in_context_start=4, patch_size=2, **kwargs)
 
 def JiT_B_16(**kwargs):
