@@ -394,10 +394,12 @@ class JiT(nn.Module):
         return output
 
 # hidden_size should be divisible by num_heads for attention to work properly Equal to 64 is standard for papers.
+# Number of trainable parameters: 16.527756M
 def JiT_T_2(**kwargs):
     return JiT(depth=6, hidden_size=384, num_heads=6,
                bottleneck_dim=0, in_context_len=8, in_context_start=2, patch_size=2, **kwargs)
 
+# Number of trainable parameters: 48.218544M
 def JiT_S_2(**kwargs):
     return JiT(depth=10, hidden_size=512, num_heads=8,
                bottleneck_dim=0, in_context_len=8, in_context_start=4, patch_size=2, **kwargs)
