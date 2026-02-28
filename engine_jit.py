@@ -54,6 +54,11 @@ def train_one_epoch(model, model_without_ddp, data_loader, optimizer, device, ep
         lr = optimizer.param_groups[0]["lr"]
         metric_logger.update(lr=lr)
 
+        # Log distillation losses if using DistillDenoiser
+        if hasattr(model_without_ddp, 'loss_vitkd'):
+            metric_logger.update(loss_x=model_without_ddp.loss_x.item())
+            metric_logger.update(loss_vitkd=model_without_ddp.loss_vitkd.item())
+
         loss_value_reduce = misc.all_reduce_mean(loss_value)
 
         if log_writer is not None:
@@ -62,6 +67,11 @@ def train_one_epoch(model, model_without_ddp, data_loader, optimizer, device, ep
             if data_iter_step % args.log_freq == 0:
                 log_writer.add_scalar('train_loss', loss_value_reduce, epoch_1000x)
                 log_writer.add_scalar('lr', lr, epoch_1000x)
+
+                # Log distillation losses to TensorBoard
+                if hasattr(model_without_ddp, 'loss_vitkd'):
+                    log_writer.add_scalar('loss_x', model_without_ddp.loss_x.item(), epoch_1000x)
+                    log_writer.add_scalar('loss_vitkd', model_without_ddp.loss_vitkd.item(), epoch_1000x)
 
 
 def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):

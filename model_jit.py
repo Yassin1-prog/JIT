@@ -363,11 +363,12 @@ class JiT(nn.Module):
         imgs = x.reshape(shape=(x.shape[0], c, h * p, h * p))
         return imgs
 
-    def forward(self, x, t, y):
+    def forward(self, x, t, y, return_features=False):
         """
         x: (N, C, H, W)
         t: (N,)
         y: (N,)
+        return_features: If True, return (output, [low_feats, high_feats])
         """
         # class and time embeddings
         t_emb = self.t_embedder(t)
@@ -378,6 +379,9 @@ class JiT(nn.Module):
         x = self.x_embedder(x)
         x += self.pos_embed
 
+        # Store block outputs for feature extraction
+        block_outputs = [] if return_features else None
+
         for i, block in enumerate(self.blocks):
             # in-context
             if self.in_context_len > 0 and i == self.in_context_start:
@@ -386,12 +390,37 @@ class JiT(nn.Module):
                 x = torch.cat([in_context_tokens, x], dim=1)
             x = block(x, c, self.feat_rope if i < self.in_context_start else self.feat_rope_incontext)
 
+            # Store output after each block (before stripping in-context tokens)
+            if return_features:
+                block_outputs.append(x)
+
         x = x[:, self.in_context_len:]
+
+        # Prepare features if requested
+        if return_features:
+            # Collect shallow features from blocks 0 and 1
+            # These blocks run BEFORE in_context_start for both T/2 and S/2 variants
+            # So they don't have in-context tokens to strip
+            low_feat_0 = block_outputs[0]  # [B, N, D] - no in-context tokens yet
+            low_feat_1 = block_outputs[1]  # [B, N, D] - no in-context tokens yet
+
+            # Stack shallow features: [B, N, D] -> [B, 2, N, D]
+            low_feats = torch.stack([low_feat_0, low_feat_1], dim=1)
+
+            # Collect deep features from last block
+            # Last block HAS in-context tokens, must strip them
+            high_feat_raw = block_outputs[-1]  # [B, N + in_context_len, D]
+            high_feats = high_feat_raw[:, self.in_context_len:]  # [B, N, D]
+
+            features = [low_feats, high_feats]
 
         x = self.final_layer(x, c)
         output = self.unpatchify(x, self.patch_size)
 
-        return output
+        if return_features:
+            return output, features
+        else:
+            return output
 
 # hidden_size should be divisible by num_heads for attention to work properly Equal to 64 is standard for papers.
 # Number of trainable parameters: 16.527756M

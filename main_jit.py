@@ -17,8 +17,6 @@ import util.misc as misc
 import copy
 from engine_jit import train_one_epoch, evaluate
 
-from denoiser import Denoiser
-
 
 def get_args_parser():
     parser = argparse.ArgumentParser('JiT', add_help=False)
@@ -111,6 +109,20 @@ def get_args_parser():
     parser.add_argument('--dist_url', default='env://',
                         help='URL used to set up distributed training')
 
+    # Distillation arguments
+    parser.add_argument('--distill', action='store_true',
+                        help='Enable knowledge distillation training')
+    parser.add_argument('--teacher_model', default='JiT-S/2', type=str,
+                        help='Teacher model architecture')
+    parser.add_argument('--teacher_ckpt', default='', type=str,
+                        help='Path to teacher checkpoint file')
+    parser.add_argument('--alpha_vitkd', type=float, default=3e-5,
+                        help='Weight for ViTKD shallow layer mimicking loss')
+    parser.add_argument('--beta_vitkd', type=float, default=3e-6,
+                        help='Weight for ViTKD deep layer generation loss')
+    parser.add_argument('--lambda_vitkd', type=float, default=0.5,
+                        help='Masking ratio for ViTKD generation loss')
+
     return parser
 
 
@@ -164,8 +176,18 @@ def main(args):
     torch._dynamo.config.cache_size_limit = 128
     torch._dynamo.config.optimize_ddp = False
 
-    # Create denoiser
-    model = Denoiser(args)
+    # Create denoiser with optional distillation
+    if args.distill:
+        if not args.teacher_ckpt:
+            raise ValueError("--teacher_ckpt must be provided when --distill is enabled")
+
+        from distill_denoiser import DistillDenoiser
+        model = DistillDenoiser(args)
+        print(f"Using DistillDenoiser: student={args.model}, teacher={args.teacher_model}")
+    else:
+        from denoiser import Denoiser
+        model = Denoiser(args)
+        print(f"Using standard Denoiser: model={args.model}")
 
     print("Model =", model)
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)

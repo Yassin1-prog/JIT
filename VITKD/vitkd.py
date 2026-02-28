@@ -2,9 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from mmcls.registry import MODELS
 
-@MODELS.register_module()
 class ViTKDLoss(nn.Module):
     """
     ViTKD (Vision Transformer Knowledge Distillation) Loss Module
