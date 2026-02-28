@@ -28,6 +28,7 @@ class Denoiser(nn.Module):
         # ema
         self.ema_decay1 = args.ema_decay1
         self.ema_decay2 = args.ema_decay2
+        self.use_dual_ema = args.use_dual_ema
         self.ema_params1 = None
         self.ema_params2 = None
 
@@ -126,5 +127,6 @@ class Denoiser(nn.Module):
         source_params = list(self.parameters())
         for targ, src in zip(self.ema_params1, source_params):
             targ.detach().mul_(self.ema_decay1).add_(src, alpha=1 - self.ema_decay1)
-        for targ, src in zip(self.ema_params2, source_params):
-            targ.detach().mul_(self.ema_decay2).add_(src, alpha=1 - self.ema_decay2)
+        if self.use_dual_ema:
+            for targ, src in zip(self.ema_params2, source_params):
+                targ.detach().mul_(self.ema_decay2).add_(src, alpha=1 - self.ema_decay2)

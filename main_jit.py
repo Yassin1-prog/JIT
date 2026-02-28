@@ -50,6 +50,8 @@ def get_args_parser():
                         help='The first ema to track. Use the first ema for sampling by default.')
     parser.add_argument('--ema_decay2', type=float, default=0.9996,
                         help='The second ema to track')
+    parser.add_argument('--use_dual_ema', action='store_true',
+                        help='Enable dual EMA tracking (both decay1 and decay2). Default: only decay1.')
     parser.add_argument('--P_mean', default=-0.8, type=float)
     parser.add_argument('--P_std', default=0.8, type=float)
     parser.add_argument('--noise_scale', default=1.0, type=float)
