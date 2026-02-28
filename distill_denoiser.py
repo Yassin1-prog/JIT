@@ -51,6 +51,12 @@ class DistillDenoiser(nn.Module):
             else:
                 state_dict = checkpoint
 
+            # The checkpoint may have been saved from a Denoiser/DistillDenoiser
+            # wrapper where JiT lives under self.net, so keys carry a "net." prefix.
+            # Strip the prefix so the bare JiT model can load them.
+            if any(k.startswith('net.') for k in state_dict.keys()):
+                state_dict = {k[len('net.'):]: v for k, v in state_dict.items() if k.startswith('net.')}
+
             self.teacher.load_state_dict(state_dict)
             print(f"Loaded teacher checkpoint from {args.teacher_ckpt}")
 
