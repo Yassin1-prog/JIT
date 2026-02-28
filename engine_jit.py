@@ -109,7 +109,8 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
         with torch.amp.autocast('cuda', dtype=torch.bfloat16):
             sampled_images = model_without_ddp.generate(labels_gen)
 
-        torch.distributed.barrier()
+        if misc.is_dist_avail_and_initialized():
+            torch.distributed.barrier()
 
         # denormalize images
         sampled_images = (sampled_images + 1) / 2
@@ -124,7 +125,8 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
             gen_img = gen_img.astype(np.uint8)[:, :, ::-1]
             cv2.imwrite(os.path.join(save_folder, '{}.png'.format(str(img_id).zfill(5))), gen_img)
 
-    torch.distributed.barrier()
+    if misc.is_dist_avail_and_initialized():
+        torch.distributed.barrier()
 
     # back to no ema
     print("Switch back from ema")
@@ -160,4 +162,5 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
         print("FID: {:.4f}, Inception Score: {:.4f}".format(fid, inception_score))
         shutil.rmtree(save_folder)
 
-    torch.distributed.barrier()
+    if misc.is_dist_avail_and_initialized():
+        torch.distributed.barrier()
