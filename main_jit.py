@@ -222,7 +222,20 @@ def main(args):
         # Tell PyTorch that argparse.Namespace is safe to load
         #torch.serialization.add_safe_globals([argparse.Namespace])
         checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
-        model_without_ddp.load_state_dict(checkpoint['model'])
+
+        # A checkpoint saved from DistillDenoiser contains extra keys like
+        # "teacher.*" and "vitkd_loss.*" that don't exist in a plain Denoiser.
+        # Filter to only the keys the current model expects so evaluation without
+        # --distill works on checkpoints produced by distillation training.
+        checkpoint_model = checkpoint['model']
+        model_keys = set(model_without_ddp.state_dict().keys())
+        unexpected = [k for k in checkpoint_model if k not in model_keys]
+        if unexpected:
+            print(f"[INFO] Dropping {len(unexpected)} keys not in current model "
+                  f"(e.g. {unexpected[0]}). This is expected when loading a "
+                  f"DistillDenoiser checkpoint into a plain Denoiser.")
+            checkpoint_model = {k: v for k, v in checkpoint_model.items() if k in model_keys}
+        model_without_ddp.load_state_dict(checkpoint_model)
 
         ema_state_dict1 = checkpoint['model_ema1']
         ema_state_dict2 = checkpoint['model_ema2']
@@ -230,10 +243,14 @@ def main(args):
         model_without_ddp.ema_params2 = [ema_state_dict2[name].cuda() for name, _ in model_without_ddp.named_parameters()]
         print("Resumed checkpoint from", args.resume)
 
-        if 'optimizer' in checkpoint and 'epoch' in checkpoint:
+        if 'optimizer' in checkpoint and 'epoch' in checkpoint and not args.evaluate_gen:
             optimizer.load_state_dict(checkpoint['optimizer'])
             args.start_epoch = checkpoint['epoch'] + 1
             print("Loaded optimizer & scaler state!")
+        # If optimizer was saved from a DistillDenoiser checkpoint but will be loaded into a plain Denoiser (e.g. for evaluation),
+        # the optimizer state dict contains extra keys like "vitkd_loss.*". But since optimizer has no effect in evaluation, just ignore loading it.
+        elif 'epoch' in checkpoint:
+            args.start_epoch = checkpoint['epoch'] + 1
         del checkpoint
     else:
         model_without_ddp.ema_params1 = copy.deepcopy(list(model_without_ddp.parameters()))
