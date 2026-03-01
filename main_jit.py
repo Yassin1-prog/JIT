@@ -122,6 +122,8 @@ def get_args_parser():
                         help='Weight for ViTKD deep layer generation loss')
     parser.add_argument('--lambda_vitkd', type=float, default=0.5,
                         help='Masking ratio for ViTKD generation loss')
+    parser.add_argument('--mimic_only', action='store_true',
+                        help='Only use shallow mimicking loss; skip the deep generation loss')
 
     return parser
 

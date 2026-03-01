@@ -23,6 +23,7 @@ class ViTKDLoss(nn.Module):
                  alpha_vitkd=0.00003,   # Weight for shallow layer mimicking loss
                  beta_vitkd=0.000003,   # Weight for deep layer generation loss
                  lambda_vitkd=0.5,      # Masking ratio (0.5 = mask 50% of tokens)
+                 mimic_only=False,      # If True, skip generation loss (only use mimicking)
                  ):
         super(ViTKDLoss, self).__init__()
         
@@ -30,6 +31,7 @@ class ViTKDLoss(nn.Module):
         self.alpha_vitkd = alpha_vitkd      # Scales the mimicking loss (default: 3e-5)
         self.beta_vitkd = beta_vitkd        # Scales the generation loss (default: 3e-6)
         self.lambda_vitkd = lambda_vitkd    # Controls how many tokens to mask (default: 0.5)
+        self.mimic_only = mimic_only        # Skip generation loss when True
     
         # ═══════════════════════════════════════════════════════════════════════
         # ALIGNMENT LAYERS: Match student's dimension to teacher's dimension
@@ -145,6 +147,10 @@ class ViTKDLoss(nn.Module):
         # ═══════════════════════════════════════════════════════════════════════
         # PART 2: GENERATION MODULE (Deep Layer Distillation)
         # ═══════════════════════════════════════════════════════════════════════
+        # Skipped when mimic_only=True (controlled by --mimic_only CLI flag)
+        if self.mimic_only:
+            return loss_lr
+
         # Goal: Force student to generate teacher's features from partial information
         # Method: Random masking + learnable mask tokens + convolutional generation
         

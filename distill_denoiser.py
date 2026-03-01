@@ -81,6 +81,7 @@ class DistillDenoiser(nn.Module):
             alpha_vitkd=args.alpha_vitkd,
             beta_vitkd=args.beta_vitkd,
             lambda_vitkd=args.lambda_vitkd,
+            mimic_only=getattr(args, 'mimic_only', False),
         )
 
         # ====================================================================
