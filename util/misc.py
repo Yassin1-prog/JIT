@@ -258,17 +258,26 @@ def save_model(args, model_without_ddp, optimizer, epoch, epoch_name=None):
     output_dir = Path(args.output_dir)
     checkpoint_path = output_dir / ('checkpoint-%s.pth' % epoch_name)
 
+    full_state = model_without_ddp.state_dict()
+    # Exclude frozen teacher weights from checkpoint: they are re-loaded from
+    # args.teacher_ckpt on DistillDenoiser.__init__ and never change, so saving
+    # them (3× across model/ema1/ema2) would bloat the file by ~3×teacher_size.
+    def _drop_teacher(sd):
+        return {k: v for k, v in sd.items() if not k.startswith('teacher.')}
+
     to_save = {
-        'model': model_without_ddp.state_dict(),
+        'model': _drop_teacher(full_state),
         'optimizer': optimizer.state_dict(),
         'epoch': epoch,
         'args': args,
     }
 
-    # ema
-    ema_state_dict1 = copy.deepcopy(model_without_ddp.state_dict())
-    ema_state_dict2 = copy.deepcopy(model_without_ddp.state_dict())
+    # ema — also exclude teacher keys
+    ema_state_dict1 = _drop_teacher(copy.deepcopy(full_state))
+    ema_state_dict2 = _drop_teacher(copy.deepcopy(full_state))
     for i, (name, _value) in enumerate(model_without_ddp.named_parameters()):
+        if name.startswith('teacher.'):
+            continue  # teacher is frozen; its EMA = itself — no need to store
         assert name in ema_state_dict1 and name in ema_state_dict2
         ema_state_dict1[name] = model_without_ddp.ema_params1[i]
         ema_state_dict2[name] = model_without_ddp.ema_params2[i]

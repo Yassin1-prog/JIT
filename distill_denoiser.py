@@ -237,9 +237,9 @@ class DistillDenoiser(nn.Module):
 
     @torch.no_grad()
     def update_ema(self):
-        """Update EMA parameters for student only."""
-        source_params = list(self.parameters())
-        for targ, src in zip(self.ema_params1, source_params):
-            targ.detach().mul_(self.ema_decay1).add_(src, alpha=1 - self.ema_decay1)
-        for targ, src in zip(self.ema_params2, source_params):
-            targ.detach().mul_(self.ema_decay2).add_(src, alpha=1 - self.ema_decay2)
+        """Update EMA for student + vitkd_loss parameters only (skip frozen teacher)."""
+        for i, (name, param) in enumerate(self.named_parameters()):
+            if name.startswith('teacher.'):
+                continue  # frozen — EMA value equals the param itself; skip
+            self.ema_params1[i].detach().mul_(self.ema_decay1).add_(param.detach(), alpha=1 - self.ema_decay1)
+            self.ema_params2[i].detach().mul_(self.ema_decay2).add_(param.detach(), alpha=1 - self.ema_decay2)

@@ -241,8 +241,16 @@ def main(args):
 
         ema_state_dict1 = checkpoint['model_ema1']
         ema_state_dict2 = checkpoint['model_ema2']
-        model_without_ddp.ema_params1 = [ema_state_dict1[name].cuda() for name, _ in model_without_ddp.named_parameters()]
-        model_without_ddp.ema_params2 = [ema_state_dict2[name].cuda() for name, _ in model_without_ddp.named_parameters()]
+        # teacher.* keys are intentionally omitted from checkpoints (frozen,
+        # re-loaded on init); fall back to the current parameter value for them.
+        model_without_ddp.ema_params1 = [
+            ema_state_dict1[name].cuda() if name in ema_state_dict1 else param.data.clone()
+            for name, param in model_without_ddp.named_parameters()
+        ]
+        model_without_ddp.ema_params2 = [
+            ema_state_dict2[name].cuda() if name in ema_state_dict2 else param.data.clone()
+            for name, param in model_without_ddp.named_parameters()
+        ]
         print("Resumed checkpoint from", args.resume)
 
         if 'optimizer' in checkpoint and 'epoch' in checkpoint and not args.evaluate_gen:
