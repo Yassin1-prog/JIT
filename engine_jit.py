@@ -11,6 +11,9 @@ import util.misc as misc
 import util.lr_sched as lr_sched
 import torch_fidelity
 import copy
+import glob
+import lpips
+from torchmetrics.image import StructuralSimilarityIndexMeasure
 
 
 def train_one_epoch(model, model_without_ddp, data_loader, optimizer, device, epoch, log_writer=None, args=None):
@@ -153,14 +156,16 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
             fid_statistics_file = 'fid_stats/jit_in32_test_stats.npz'
         else:
             raise NotImplementedError
+        real_img_dir = args.real_img_dir if args.real_img_dir else None
+        compute_kid = real_img_dir is not None
         metrics_dict = torch_fidelity.calculate_metrics(
             input1=save_folder,
-            input2=None,
+            input2=real_img_dir,
             fid_statistics_file=fid_statistics_file,
             cuda=True,
             isc=True,
             fid=True,
-            kid=False,
+            kid=compute_kid,
             prc=False,
             verbose=False,
         )
@@ -170,7 +175,114 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
         log_writer.add_scalar('fid{}'.format(postfix), fid, epoch)
         log_writer.add_scalar('is{}'.format(postfix), inception_score, epoch)
         print("FID: {:.4f}, Inception Score: {:.4f}".format(fid, inception_score))
+        if compute_kid:
+            kid = metrics_dict['kernel_inception_distance_mean']
+            log_writer.add_scalar('kid{}'.format(postfix), kid, epoch)
+            print("KID: {:.4f}".format(kid))
+
+        # Compute SSIM and LPIPS metrics (only when real images are available)
+        if compute_kid:
+            ssim_score = compute_ssim_metric(save_folder, real_img_dir, batch_size=32)
+            lpips_score = compute_lpips_metric(save_folder, real_img_dir, batch_size=32)
+            log_writer.add_scalar('ssim{}'.format(postfix), ssim_score, epoch)
+            log_writer.add_scalar('lpips{}'.format(postfix), lpips_score, epoch)
+            print("SSIM: {:.4f}, LPIPS: {:.4f}".format(ssim_score, lpips_score))
+
         shutil.rmtree(save_folder)
 
     if misc.is_dist_avail_and_initialized():
         torch.distributed.barrier()
+
+
+def load_image_pairs(gen_folder, real_folder, max_pairs=None):
+    """Load and pair generated and real image paths."""
+    gen_paths = sorted(glob.glob(os.path.join(gen_folder, '*.png')))
+    real_paths = sorted(glob.glob(os.path.join(real_folder, '*.png')))
+
+    if len(gen_paths) == 0:
+        raise ValueError(f"No generated images found in {gen_folder}")
+    if len(real_paths) == 0:
+        raise ValueError(f"No real images found in {real_folder}")
+
+    num_pairs = min(len(gen_paths), len(real_paths))
+    if max_pairs is not None:
+        num_pairs = min(num_pairs, max_pairs)
+
+    if len(gen_paths) != len(real_paths):
+        print(f"Warning: Mismatched counts - {len(gen_paths)} gen, {len(real_paths)} real. Using {num_pairs} pairs.")
+
+    return gen_paths[:num_pairs], real_paths[:num_pairs]
+
+
+def preprocess_images_for_ssim(img_paths, batch_size, device):
+    """Generator that yields batches of images preprocessed for SSIM."""
+    for i in range(0, len(img_paths), batch_size):
+        batch_paths = img_paths[i:i+batch_size]
+        batch_images = []
+
+        for path in batch_paths:
+            img = cv2.imread(path)
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img_tensor = torch.from_numpy(img).permute(2, 0, 1)
+            img_tensor = img_tensor.float() / 255.0
+            batch_images.append(img_tensor)
+
+        batch_tensor = torch.stack(batch_images).to(device)
+        yield batch_tensor
+
+
+def preprocess_images_for_lpips(img_paths, batch_size, device):
+    """Generator that yields batches of images preprocessed for LPIPS."""
+    for i in range(0, len(img_paths), batch_size):
+        batch_paths = img_paths[i:i+batch_size]
+        batch_images = []
+
+        for path in batch_paths:
+            img = cv2.imread(path)
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img_tensor = torch.from_numpy(img).permute(2, 0, 1)
+            img_tensor = img_tensor.float() / 255.0
+            img_tensor = img_tensor * 2.0 - 1.0
+            batch_images.append(img_tensor)
+
+        batch_tensor = torch.stack(batch_images).to(device)
+        yield batch_tensor
+
+
+def compute_ssim_metric(gen_folder, real_folder, batch_size=32):
+    """Compute average SSIM between generated and real images."""
+    gen_paths, real_paths = load_image_pairs(gen_folder, real_folder)
+
+    ssim_metric = StructuralSimilarityIndexMeasure(data_range=1.0).cuda()
+
+    ssim_scores = []
+    gen_loader = preprocess_images_for_ssim(gen_paths, batch_size, 'cuda')
+    real_loader = preprocess_images_for_ssim(real_paths, batch_size, 'cuda')
+
+    with torch.no_grad():
+        for gen_batch, real_batch in zip(gen_loader, real_loader):
+            ssim_batch = ssim_metric(gen_batch, real_batch)
+            ssim_scores.append(ssim_batch.item())
+
+    avg_ssim = sum(ssim_scores) / len(ssim_scores)
+    return avg_ssim
+
+
+def compute_lpips_metric(gen_folder, real_folder, batch_size=32, net='alex'):
+    """Compute average LPIPS between generated and real images."""
+    gen_paths, real_paths = load_image_pairs(gen_folder, real_folder)
+
+    lpips_model = lpips.LPIPS(net=net).cuda()
+    lpips_model.eval()
+
+    lpips_scores = []
+    gen_loader = preprocess_images_for_lpips(gen_paths, batch_size, 'cuda')
+    real_loader = preprocess_images_for_lpips(real_paths, batch_size, 'cuda')
+
+    with torch.no_grad():
+        for gen_batch, real_batch in zip(gen_loader, real_loader):
+            lpips_batch = lpips_model(gen_batch, real_batch)
+            lpips_scores.extend(lpips_batch.squeeze().cpu().numpy().tolist())
+
+    avg_lpips = sum(lpips_scores) / len(lpips_scores)
+    return avg_lpips

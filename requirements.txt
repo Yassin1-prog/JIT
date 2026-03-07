@@ -4,3 +4,5 @@ tensorboard>=2.14.0
 einops==0.8.1
 gdown==5.2.0
 git+https://github.com/LTH14/torch-fidelity.git@master
+lpips==0.1.4
+torchmetrics==1.2.0

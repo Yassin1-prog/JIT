@@ -89,6 +89,9 @@ def get_args_parser():
     parser.add_argument('--data_path', default='./data/cifar10/test', type=str,
                         help='Path to the dataset root directory (should contain class folders directly)')
     parser.add_argument('--class_num', default=10, type=int)
+    parser.add_argument('--real_img_dir', default='', type=str,
+                        help='Path to real images directory for KID computation. '
+                             'If empty, KID will not be calculated.')
 
     # checkpointing
     parser.add_argument('--output_dir', default='./output_dir',
