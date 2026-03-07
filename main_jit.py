@@ -237,7 +237,17 @@ def main(args):
                   f"(e.g. {unexpected[0]}). This is expected when loading a "
                   f"DistillDenoiser checkpoint into a plain Denoiser.")
             checkpoint_model = {k: v for k, v in checkpoint_model.items() if k in model_keys}
-        model_without_ddp.load_state_dict(checkpoint_model)
+        # strict=False: teacher.* keys are intentionally absent from checkpoints
+        # (excluded by _drop_teacher in save_model) because teacher weights are
+        # frozen and re-loaded from args.teacher_ckpt at DistillDenoiser.__init__.
+        missing, unexpected2 = model_without_ddp.load_state_dict(checkpoint_model, strict=False)
+        teacher_missing = [k for k in missing if k.startswith('teacher.')]
+        non_teacher_missing = [k for k in missing if not k.startswith('teacher.')]
+        if teacher_missing:
+            print(f"[INFO] {len(teacher_missing)} teacher.* keys not in checkpoint "
+                  f"(expected — teacher is re-loaded from teacher_ckpt at init).")
+        if non_teacher_missing:
+            raise RuntimeError(f"Unexpected missing keys in checkpoint: {non_teacher_missing}")
 
         ema_state_dict1 = checkpoint['model_ema1']
         ema_state_dict2 = checkpoint['model_ema2']
