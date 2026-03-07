@@ -198,6 +198,19 @@ def main(args):
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("Number of trainable parameters: {:.6f}M".format(n_params / 1e6))
 
+    try:
+        from torch.profiler import profile, ProfilerActivity
+        _x = torch.zeros(1, 3, args.img_size, args.img_size)
+        _t = torch.zeros(1)
+        _y = torch.zeros(1, dtype=torch.long)
+        with profile(activities=[ProfilerActivity.CPU], with_flops=True, record_shapes=True) as prof:
+            with torch.no_grad():
+                model.net(_x, _t, _y)
+        total_flops = sum(e.flops for e in prof.key_averages() if e.flops > 0)
+        print("Model FLOPs: {:.4f}G".format(total_flops / 1e9))
+    except Exception as e:
+        print(f"FLOPs calculation skipped: {e}")
+
     model.to(device)
 
     eff_batch_size = args.batch_size * misc.get_world_size()
