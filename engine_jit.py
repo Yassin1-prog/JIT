@@ -176,34 +176,38 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
     if misc.is_dist_avail_and_initialized():
         torch.distributed.barrier()
 
-    # Aggregate timing metrics across all distributed processes
+    # Aggregate timing and memory metrics across all ranks
     if misc.is_dist_avail_and_initialized():
-        # Convert to tensors for all_reduce
-        timing_tensor = torch.tensor([total_inference_time, float(total_images_generated)],
-                                      dtype=torch.float64, device='cuda')
-        torch.distributed.all_reduce(timing_tensor, op=torch.distributed.ReduceOp.SUM)
+        # Sum across all processes
+        total_inference_time_tensor = torch.tensor([total_inference_time], device='cuda')
+        total_images_tensor = torch.tensor([total_images_generated], device='cuda')
+        total_memory_tensor = torch.tensor([total_peak_memory_mb], device='cuda')
 
-        # Extract aggregated values
-        total_inference_time_all_ranks = timing_tensor[0].item()
-        total_images_generated_all_ranks = int(timing_tensor[1].item())
+        torch.distributed.all_reduce(total_inference_time_tensor)
+        torch.distributed.all_reduce(total_images_tensor)
+        torch.distributed.all_reduce(total_memory_tensor)
+
+        total_inference_time_all = total_inference_time_tensor.item()
+        total_images_all = total_images_tensor.item()
+        total_memory_all = total_memory_tensor.item()
     else:
-        total_inference_time_all_ranks = total_inference_time
-        total_images_generated_all_ranks = total_images_generated
+        total_inference_time_all = total_inference_time
+        total_images_all = total_images_generated
+        total_memory_all = total_peak_memory_mb
 
-    # Compute derived metrics
-    avg_time_per_image_ms = (total_inference_time_all_ranks / total_images_generated_all_ranks) * 1000
-    throughput_images_per_sec = total_images_generated_all_ranks / total_inference_time_all_ranks
+    # Calculate metrics
+    avg_time_per_image_ms = (total_inference_time_all / total_images_all) * 1000 if total_images_all > 0 else 0
+    throughput_images_per_sec = total_images_all / total_inference_time_all if total_inference_time_all > 0 else 0
+    total_steps_all = num_steps * world_size
+    avg_peak_memory_mb = total_memory_all / total_steps_all if total_steps_all > 0 else 0
+    avg_peak_memory_gb = avg_peak_memory_mb / 1024.0
 
     print(f"\n=== Inference Timing Metrics ===")
-    print(f"Total inference time: {total_inference_time_all_ranks:.2f} seconds")
-    print(f"Total images generated: {total_images_generated_all_ranks}")
+    print(f"Total inference time: {total_inference_time_all:.2f} seconds")
+    print(f"Total images generated: {int(total_images_all)}")
     print(f"Average time per image: {avg_time_per_image_ms:.2f} ms/image")
     print(f"Throughput: {throughput_images_per_sec:.2f} images/second")
     print(f"================================\n")
-
-    # Compute average peak memory
-    avg_peak_memory_mb = total_peak_memory_mb / num_steps
-    avg_peak_memory_gb = avg_peak_memory_mb / 1024.0
 
     print(f"Average peak GPU memory: {avg_peak_memory_gb:.3f} GB ({avg_peak_memory_mb:.1f} MB)")
 
@@ -250,7 +254,7 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
         
         # Log inference timing metrics
         log_writer.add_scalar('inference_time_total_sec{}'.format(postfix),
-                              total_inference_time_all_ranks, epoch)
+                              total_inference_time_all, epoch)
         log_writer.add_scalar('inference_time_per_image_ms{}'.format(postfix),
                               avg_time_per_image_ms, epoch)
         log_writer.add_scalar('inference_throughput_imgs_per_sec{}'.format(postfix),
