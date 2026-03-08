@@ -234,6 +234,7 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
             kid=compute_kid,
             prc=False,
             verbose=False,
+            samples_find_deep=True,
         )
         fid = metrics_dict['frechet_inception_distance']
         inception_score = metrics_dict['inception_score_mean']
