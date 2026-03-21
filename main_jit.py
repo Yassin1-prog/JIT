@@ -92,6 +92,9 @@ def get_args_parser():
     parser.add_argument('--real_img_dir', default='', type=str,
                         help='Path to real images directory for KID computation. '
                              'If empty, KID will not be calculated.')
+    parser.add_argument('--ref_cmmd_embed_file', default='', type=str,
+                        help='Path to pre-computed CMMD reference embeddings (.npy). '
+                             'If provided, skips recomputing embeddings from real_img_dir.')
 
     # checkpointing
     parser.add_argument('--output_dir', default='./output_dir',

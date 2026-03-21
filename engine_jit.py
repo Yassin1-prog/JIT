@@ -13,6 +13,10 @@ import util.lr_sched as lr_sched
 import torch_fidelity
 import copy
 
+from cmmd.embedding import ClipEmbeddingModel
+from cmmd.io_util import compute_embeddings_for_dir
+from cmmd import distance as cmmd_distance
+
 
 
 def train_one_epoch(model, model_without_ddp, data_loader, optimizer, device, epoch, log_writer=None, args=None):
@@ -227,7 +231,7 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
         else:
             raise NotImplementedError
         real_img_dir = args.real_img_dir if args.real_img_dir else None
-        compute_kid = real_img_dir is not None
+        compute_kid_prc = real_img_dir is not None
         metrics_dict = torch_fidelity.calculate_metrics(
             input1=save_folder,
             input2=real_img_dir,
@@ -235,8 +239,8 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
             cuda=True,
             isc=True,
             fid=True,
-            kid=compute_kid,
-            prc=False,
+            kid=compute_kid_prc,
+            prc=compute_kid_prc,
             verbose=False,
             samples_find_deep=True,
         )
@@ -247,11 +251,35 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
         log_writer.add_scalar('is{}'.format(postfix), inception_score, epoch)
         print("FID: {:.4f}, Inception Score: {:.4f}".format(fid, inception_score))
 
-        if compute_kid:
+        if compute_kid_prc:
             kid = metrics_dict['kernel_inception_distance_mean']
+            precision = metrics_dict['precision']
+            recall = metrics_dict['recall']
             log_writer.add_scalar('kid{}'.format(postfix), kid, epoch)
-            print("KID: {:.4f}".format(kid))
-        
+            log_writer.add_scalar('precision{}'.format(postfix), precision, epoch)
+            log_writer.add_scalar('recall{}'.format(postfix), recall, epoch)
+            print("KID: {:.4f}, Precision: {:.4f}, Recall: {:.4f}".format(kid, precision, recall))
+
+        # Compute CMMD (only on rank 0, requires real_img_dir or cached ref embeddings)
+        ref_cmmd_embed_file = getattr(args, 'ref_cmmd_embed_file', None)
+        if misc.is_main_process() and (args.real_img_dir or ref_cmmd_embed_file):
+            clip_model = ClipEmbeddingModel()
+
+            if ref_cmmd_embed_file and os.path.isfile(ref_cmmd_embed_file):
+                ref_embeddings = np.load(ref_cmmd_embed_file)
+            else:
+                ref_embeddings = compute_embeddings_for_dir(
+                    args.real_img_dir, clip_model, batch_size=32
+                )
+
+            eval_embeddings = compute_embeddings_for_dir(
+                save_folder, clip_model, batch_size=32
+            )
+
+            cmmd_value = float(cmmd_distance.mmd(ref_embeddings, eval_embeddings).item())
+            log_writer.add_scalar('cmmd{}'.format(postfix), cmmd_value, epoch)
+            print("CMMD: {:.4f}".format(cmmd_value))
+
         # Log inference timing metrics
         log_writer.add_scalar('inference_time_total_sec{}'.format(postfix),
                               total_inference_time_all, epoch)

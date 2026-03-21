@@ -3,4 +3,8 @@ timm==0.9.12
 tensorboard>=2.14.0
 einops==0.8.1
 gdown==5.2.0
+numpy>=1.21.0
+Pillow>=9.0.0
+tqdm>=4.60.0
+transformers>=4.30.0
 git+https://github.com/LTH14/torch-fidelity.git@master
