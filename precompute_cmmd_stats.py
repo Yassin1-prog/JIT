@@ -2,9 +2,9 @@
 
 Usage:
     python precompute_cmmd_stats.py --img_dir /path/to/real_images \
-                                    --output cmmd_stats/jit_in256_cmmd.npy \
+                                    --output cmmd_stats/jit_in32_cmmd.npy \
                                     --batch_size 32 \
-                                    --max_count 30000
+                                    --max_count 10000
 """
 
 import argparse
@@ -23,8 +23,9 @@ def get_args_parser():
                         help='Output .npy file path for cached embeddings')
     parser.add_argument('--batch_size', default=32, type=int,
                         help='Batch size for CLIP inference')
-    parser.add_argument('--max_count', default=-1, type=int,
-                        help='Maximum number of images to use (-1 for all)')
+    parser.add_argument('--max_count', default=10000, type=int,
+                        help='Maximum number of images to use (-1 for all). '
+                             'Defaults to 10000 to match CIFAR-10 test set size.')
     return parser
 
 

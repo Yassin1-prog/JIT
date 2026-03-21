@@ -40,8 +40,8 @@ class CMMDDataset(Dataset):
         ext_list = ["png", "jpg", "jpeg"]
         image_list = []
         for ext in ext_list:
-            image_list.extend(glob.glob(f"{self.path}/*{ext}"))
-            image_list.extend(glob.glob(f"{self.path}/*.{ext.upper()}"))
+            image_list.extend(glob.glob(f"{self.path}/**/*.{ext}", recursive=True))
+            image_list.extend(glob.glob(f"{self.path}/**/*.{ext.upper()}", recursive=True))
         # Sort the list to ensure a deterministic output.
         image_list.sort()
         return image_list

@@ -272,8 +272,9 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
                     args.real_img_dir, clip_model, batch_size=32
                 )
 
+            cmmd_max_count = getattr(args, 'cmmd_max_count', 10000)
             eval_embeddings = compute_embeddings_for_dir(
-                save_folder, clip_model, batch_size=32
+                save_folder, clip_model, batch_size=32, max_count=cmmd_max_count
             )
 
             cmmd_value = float(cmmd_distance.mmd(ref_embeddings, eval_embeddings).item())
