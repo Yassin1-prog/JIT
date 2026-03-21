@@ -13,9 +13,6 @@ import util.lr_sched as lr_sched
 import torch_fidelity
 import copy
 
-from cmmd.embedding import ClipEmbeddingModel
-from cmmd.io_util import compute_embeddings_for_dir
-from cmmd import distance as cmmd_distance
 
 
 
@@ -260,27 +257,6 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
             log_writer.add_scalar('recall{}'.format(postfix), recall, epoch)
             print("KID: {:.4f}, Precision: {:.4f}, Recall: {:.4f}".format(kid, precision, recall))
 
-        # Compute CMMD (only on rank 0, requires real_img_dir or cached ref embeddings)
-        ref_cmmd_embed_file = getattr(args, 'ref_cmmd_embed_file', None)
-        if misc.is_main_process() and (args.real_img_dir or ref_cmmd_embed_file):
-            clip_model = ClipEmbeddingModel()
-
-            if ref_cmmd_embed_file and os.path.isfile(ref_cmmd_embed_file):
-                ref_embeddings = np.load(ref_cmmd_embed_file)
-            else:
-                ref_embeddings = compute_embeddings_for_dir(
-                    args.real_img_dir, clip_model, batch_size=32
-                )
-
-            cmmd_max_count = getattr(args, 'cmmd_max_count', 10000)
-            eval_embeddings = compute_embeddings_for_dir(
-                save_folder, clip_model, batch_size=32, max_count=cmmd_max_count
-            )
-
-            cmmd_value = float(cmmd_distance.mmd(ref_embeddings, eval_embeddings).item())
-            log_writer.add_scalar('cmmd{}'.format(postfix), cmmd_value, epoch)
-            print("CMMD: {:.4f}".format(cmmd_value))
-
         # Log inference timing metrics
         log_writer.add_scalar('inference_time_total_sec{}'.format(postfix),
                               total_inference_time_all, epoch)
@@ -293,7 +269,10 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
         log_writer.add_scalar('gpu_memory_avg_peak_gb{}'.format(postfix),
                               avg_peak_memory_gb, epoch)
 
-        shutil.rmtree(save_folder)
+        if not getattr(args, 'keep_gen_images', False):
+            shutil.rmtree(save_folder)
+        else:
+            print("Generated images kept at:", save_folder)
 
     if misc.is_dist_avail_and_initialized():
         torch.distributed.barrier()

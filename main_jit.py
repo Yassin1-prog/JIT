@@ -92,13 +92,9 @@ def get_args_parser():
     parser.add_argument('--real_img_dir', default='', type=str,
                         help='Path to real images directory for KID computation. '
                              'If empty, KID will not be calculated.')
-    parser.add_argument('--ref_cmmd_embed_file', default='', type=str,
-                        help='Path to pre-computed CMMD reference embeddings (.npy). '
-                             'If provided, skips recomputing embeddings from real_img_dir.')
-    parser.add_argument('--cmmd_max_count', default=10000, type=int,
-                        help='Number of generated images used for CMMD. Should match the '
-                             'reference set size for a symmetric comparison. '
-                             'Defaults to 10000 (CIFAR-10 test set size).')
+    parser.add_argument('--keep_gen_images', action='store_true',
+                        help='Keep generated images after evaluation instead of deleting them. '
+                             'Use when you intend to run compute_cmmd.py afterwards.')
 
     # checkpointing
     parser.add_argument('--output_dir', default='./output_dir',
