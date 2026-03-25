@@ -174,8 +174,6 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
 
         total_images_generated += batch_images_count
 
-    if misc.is_dist_avail_and_initialized():
-        torch.distributed.barrier()
 
     # Aggregate timing and memory metrics across all ranks
     if misc.is_dist_avail_and_initialized():
@@ -216,6 +214,12 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
     print("Switch back from ema")
     model_without_ddp.load_state_dict(model_state_dict)
 
+    # Sync all ranks before the long FID computation, then let non-rank-0 exit early
+    if misc.is_dist_avail_and_initialized():
+        torch.distributed.barrier()
+    if misc.get_rank() != 0:
+        return
+
     # compute FID and IS
     if log_writer is not None:
         if args.img_size == 256:
@@ -241,6 +245,7 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
             verbose=False,
             samples_find_deep=True,
         )
+        print("Metrics calculated:", metrics_dict)
         fid = metrics_dict['frechet_inception_distance']
         inception_score = metrics_dict['inception_score_mean']
         postfix = "_cfg{}_res{}".format(model_without_ddp.cfg_scale, args.img_size)
@@ -273,6 +278,3 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
             shutil.rmtree(save_folder)
         else:
             print("Generated images kept at:", save_folder)
-
-    if misc.is_dist_avail_and_initialized():
-        torch.distributed.barrier()
