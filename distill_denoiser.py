@@ -99,6 +99,13 @@ class DistillDenoiser(nn.Module):
         self.ema_params1 = None
         self.ema_params2 = None
 
+        # Pre-compute indices of non-teacher parameters so update_ema() can
+        # skip the frozen teacher without a per-step string comparison.
+        self._ema_trainable_indices = [
+            i for i, (name, _) in enumerate(self.named_parameters())
+            if not name.startswith('teacher.')
+        ]
+
         # Generation parameters
         self.method = args.sampling_method
         self.steps = args.num_sampling_steps
@@ -238,8 +245,8 @@ class DistillDenoiser(nn.Module):
     @torch.no_grad()
     def update_ema(self):
         """Update EMA for student + vitkd_loss parameters only (skip frozen teacher)."""
-        for i, (name, param) in enumerate(self.named_parameters()):
-            if name.startswith('teacher.'):
-                continue  # frozen — EMA value equals the param itself; skip
+        params = list(self.parameters())
+        for i in self._ema_trainable_indices:
+            param = params[i]
             self.ema_params1[i].detach().mul_(self.ema_decay1).add_(param.detach(), alpha=1 - self.ema_decay1)
             self.ema_params2[i].detach().mul_(self.ema_decay2).add_(param.detach(), alpha=1 - self.ema_decay2)
