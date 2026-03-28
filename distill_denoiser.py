@@ -57,7 +57,29 @@ class DistillDenoiser(nn.Module):
             if any(k.startswith('net.') for k in state_dict.keys()):
                 state_dict = {k[len('net.'):]: v for k, v in state_dict.items() if k.startswith('net.')}
 
-            self.teacher.load_state_dict(state_dict)
+            missing, unexpected = self.teacher.load_state_dict(state_dict, strict=False)
+
+            # RoPE cosine/sine buffers are deterministic functions of model
+            # config and are re-created in __init__, so older checkpoints may
+            # legitimately omit them.
+            rope_missing = [k for k in missing if k.endswith(('freqs_cos', 'freqs_sin'))]
+            non_rope_missing = [k for k in missing if k not in rope_missing]
+
+            if unexpected:
+                raise RuntimeError(
+                    f"Unexpected keys in teacher checkpoint: {unexpected[:8]}"
+                    f"{' ...' if len(unexpected) > 8 else ''}"
+                )
+            if non_rope_missing:
+                raise RuntimeError(
+                    f"Missing non-RoPE keys in teacher checkpoint: {non_rope_missing[:8]}"
+                    f"{' ...' if len(non_rope_missing) > 8 else ''}"
+                )
+
+            if rope_missing:
+                print(f"[INFO] Teacher checkpoint missing {len(rope_missing)} RoPE buffers "
+                      f"(expected; recomputed in model init).")
+
             print(f"Loaded teacher checkpoint from {args.teacher_ckpt}")
 
         # Freeze teacher completely
