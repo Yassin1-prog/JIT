@@ -59,6 +59,8 @@ def train_one_epoch(model, model_without_ddp, data_loader, optimizer, device, ep
         if hasattr(model_without_ddp, 'loss_vitkd'):
             metric_logger.update(loss_x=model_without_ddp.loss_x.item())
             metric_logger.update(loss_vitkd=model_without_ddp.loss_vitkd.item())
+            if hasattr(model_without_ddp, 'loss_attn_kd'):
+                metric_logger.update(loss_attn_kd=model_without_ddp.loss_attn_kd.item())
 
         loss_value_reduce = misc.all_reduce_mean(loss_value)
 
@@ -73,6 +75,9 @@ def train_one_epoch(model, model_without_ddp, data_loader, optimizer, device, ep
                 if hasattr(model_without_ddp, 'loss_vitkd'):
                     log_writer.add_scalar('loss_x', model_without_ddp.loss_x.item(), epoch_1000x)
                     log_writer.add_scalar('loss_vitkd', model_without_ddp.loss_vitkd.item(), epoch_1000x)
+                    if hasattr(model_without_ddp, 'loss_attn_kd'):
+                        log_writer.add_scalar('loss_attn_kd',
+                                              model_without_ddp.loss_attn_kd.item(), epoch_1000x)
 
 
 def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):

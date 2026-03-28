@@ -115,7 +115,7 @@ class LabelEmbedder(nn.Module):
         return embeddings
 
 
-def scaled_dot_product_attention(query, key, value, dropout_p=0.0) -> torch.Tensor:
+def scaled_dot_product_attention(query, key, value, dropout_p=0.0, return_attn=False):
     L, S = query.size(-2), key.size(-2)
     scale_factor = 1 / math.sqrt(query.size(-1))
     attn_bias = torch.zeros(query.size(0), 1, L, S, dtype=query.dtype, device=query.device)
@@ -125,6 +125,8 @@ def scaled_dot_product_attention(query, key, value, dropout_p=0.0) -> torch.Tens
     attn_weight += attn_bias
     attn_weight = torch.softmax(attn_weight, dim=-1)
     attn_weight = torch.dropout(attn_weight, dropout_p, train=True)
+    if return_attn:
+        return attn_weight @ value, attn_weight  # attn_weight: [B, H, N, N], float32
     return attn_weight @ value
 
 
@@ -142,7 +144,7 @@ class Attention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
-    def forward(self, x, rope):
+    def forward(self, x, rope, return_attn=False):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
@@ -153,12 +155,19 @@ class Attention(nn.Module):
         q = rope(q)
         k = rope(k)
 
-        x = scaled_dot_product_attention(q, k, v, dropout_p=self.attn_drop.p if self.training else 0.)
+        if return_attn:
+            x, attn_weight = scaled_dot_product_attention(
+                q, k, v, dropout_p=self.attn_drop.p if self.training else 0., return_attn=True)
+        else:
+            x = scaled_dot_product_attention(q, k, v, dropout_p=self.attn_drop.p if self.training else 0.)
 
         x = x.transpose(1, 2).reshape(B, N, C)
 
         x = self.proj(x)
         x = self.proj_drop(x)
+
+        if return_attn:
+            return x, attn_weight  # attn_weight: [B, H, N, N], float32
         return x
 
 
@@ -219,10 +228,17 @@ class JiTBlock(nn.Module):
         )
 
     @torch.compile
-    def forward(self, x,  c, feat_rope=None):
+    def forward(self, x, c, feat_rope=None, return_attn=False):
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(c).chunk(6, dim=-1)
-        x = x + gate_msa.unsqueeze(1) * self.attn(modulate(self.norm1(x), shift_msa, scale_msa), rope=feat_rope)
+        if return_attn:
+            attn_out, attn_weight = self.attn(
+                modulate(self.norm1(x), shift_msa, scale_msa), rope=feat_rope, return_attn=True)
+            x = x + gate_msa.unsqueeze(1) * attn_out
+        else:
+            x = x + gate_msa.unsqueeze(1) * self.attn(modulate(self.norm1(x), shift_msa, scale_msa), rope=feat_rope)
         x = x + gate_mlp.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp))
+        if return_attn:
+            return x, attn_weight  # attn_weight: [B, H, N_total, N_total], float32
         return x
 
 
@@ -363,12 +379,21 @@ class JiT(nn.Module):
         imgs = x.reshape(shape=(x.shape[0], c, h * p, h * p))
         return imgs
 
-    def forward(self, x, t, y, return_features=False):
+    def forward(self, x, t, y, return_features=False,
+                return_attn_maps=False, num_attn_layers=2):
         """
         x: (N, C, H, W)
         t: (N,)
         y: (N,)
-        return_features: If True, return (output, [low_feats, high_feats])
+        return_features: If True, include [low_feats, high_feats] in the return.
+        return_attn_maps: If True, collect head-averaged, in-context-stripped
+            attention maps from the last ``num_attn_layers`` blocks.
+        num_attn_layers: Number of trailing blocks from which to extract maps.
+
+        Return conventions:
+            return_features=True,  return_attn_maps=True  -> (output, features, attn_maps)
+            return_features=True,  return_attn_maps=False -> (output, features)
+            return_features=False, return_attn_maps=False -> output
         """
         # class and time embeddings
         t_emb = self.t_embedder(t)
@@ -379,8 +404,10 @@ class JiT(nn.Module):
         x = self.x_embedder(x)
         x += self.pos_embed
 
+        depth = len(self.blocks)
         # Store block outputs for feature extraction
         block_outputs = [] if return_features else None
+        raw_attn_maps = [] if return_attn_maps else None
 
         for i, block in enumerate(self.blocks):
             # in-context
@@ -388,7 +415,15 @@ class JiT(nn.Module):
                 in_context_tokens = y_emb.unsqueeze(1).repeat(1, self.in_context_len, 1)
                 in_context_tokens += self.in_context_posemb
                 x = torch.cat([in_context_tokens, x], dim=1)
-            x = block(x, c, self.feat_rope if i < self.in_context_start else self.feat_rope_incontext)
+
+            rope = self.feat_rope if i < self.in_context_start else self.feat_rope_incontext
+            extract_attn = return_attn_maps and (i >= depth - num_attn_layers)
+
+            if extract_attn:
+                x, attn_weight = block(x, c, feat_rope=rope, return_attn=True)
+                raw_attn_maps.append(attn_weight)  # [B, H, N_total, N_total]
+            else:
+                x = block(x, c, rope)
 
             # Store output after each block (before stripping in-context tokens)
             if return_features:
@@ -414,10 +449,28 @@ class JiT(nn.Module):
 
             features = [low_feats, high_feats]
 
+        # Post-process attention maps: strip in-context tokens and head-average
+        if return_attn_maps:
+            attn_maps = []
+            for idx, amap in enumerate(raw_attn_maps):
+                block_idx = depth - num_attn_layers + idx
+                if block_idx >= self.in_context_start and self.in_context_len > 0:
+                    # In JiT.forward in-context tokens are prepended at in_context_start,
+                    # so they occupy positions 0..K-1 in the sequence.
+                    # Slice to patch-only rows and columns, then renormalize each row.
+                    K = self.in_context_len
+                    amap = amap[:, :, K:, K:]  # [B, H, N_patch, N_patch]
+                    amap = amap / amap.sum(dim=-1, keepdim=True).clamp_min(1e-9)
+                # Average over attention heads: [B, H, N, N] -> [B, N, N]
+                amap = amap.mean(dim=1)
+                attn_maps.append(amap)
+
         x = self.final_layer(x, c)
         output = self.unpatchify(x, self.patch_size)
 
-        if return_features:
+        if return_features and return_attn_maps:
+            return output, features, attn_maps
+        elif return_features:
             return output, features
         else:
             return output

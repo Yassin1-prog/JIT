@@ -68,21 +68,40 @@ class DistillDenoiser(nn.Module):
         # ====================================================================
         # VITKD LOSS MODULE
         # ====================================================================
+        self.skip_vitkd = getattr(args, 'skip_vitkd', False)
+
         # Get dimensions from model configs
         student_dims = self.net.hidden_size
         teacher_dims = self.teacher.hidden_size
 
-        # Instantiate ViTKD loss without mmcls registry
-        self.vitkd_loss = ViTKDLoss(
-            name='loss_vitkd',
-            use_this=True,
-            student_dims=student_dims,
-            teacher_dims=teacher_dims,
-            alpha_vitkd=args.alpha_vitkd,
-            beta_vitkd=args.beta_vitkd,
-            lambda_vitkd=args.lambda_vitkd,
-            mimic_only=getattr(args, 'mimic_only', False),
-        )
+        # Instantiate ViTKD loss unless explicitly disabled.
+        if not self.skip_vitkd:
+            self.vitkd_loss = ViTKDLoss(
+                name='loss_vitkd',
+                use_this=True,
+                student_dims=student_dims,
+                teacher_dims=teacher_dims,
+                alpha_vitkd=args.alpha_vitkd,
+                beta_vitkd=args.beta_vitkd,
+                lambda_vitkd=args.lambda_vitkd,
+                mimic_only=getattr(args, 'mimic_only', False),
+            )
+        else:
+            self.vitkd_loss = None
+
+        # ====================================================================
+        # ATTENTION KD LOSS MODULE (parameter-free)
+        # ====================================================================
+        self.use_attn_kd = getattr(args, 'use_attn_kd', False)
+        if self.use_attn_kd:
+            from VITKD.attn_kd_loss import AttnKDLoss
+            self.attn_kd_loss = AttnKDLoss(
+                gamma_attn=getattr(args, 'gamma_attn', 1e-4),
+                t_min=getattr(args, 't_min_attn', 0.1),
+                eps=getattr(args, 'attn_kd_eps', 1e-8),
+                symmetric=not getattr(args, 'attn_kd_asymmetric', False),
+            )
+            self.num_attn_layers = getattr(args, 'num_attn_layers', 2)
 
         # ====================================================================
         # DENOISING PARAMETERS (same as Denoiser)
@@ -145,9 +164,17 @@ class DistillDenoiser(nn.Module):
         v = (x - z) / (1 - t).clamp_min(self.t_eps)
 
         # ====================================================================
-        # STUDENT FORWARD PASS (with features)
+        # STUDENT FORWARD PASS (with features, optionally attention maps)
         # ====================================================================
-        x_pred, feats_s = self.net(z, t.flatten(), labels_dropped, return_features=True)
+        if self.use_attn_kd:
+            x_pred, feats_s, attn_maps_s = self.net(
+                z, t.flatten(), labels_dropped,
+                return_features=True,
+                return_attn_maps=True,
+                num_attn_layers=self.num_attn_layers,
+            )
+        else:
+            x_pred, feats_s = self.net(z, t.flatten(), labels_dropped, return_features=True)
         v_pred = (x_pred - z) / (1 - t).clamp_min(self.t_eps)
 
         # Flow-matching loss
@@ -162,15 +189,31 @@ class DistillDenoiser(nn.Module):
                 self.teacher.eval()
 
                 # Get teacher features (no need for predictions)
-                _, feats_t = self.teacher(z, t.flatten(), labels_dropped, return_features=True)
+                if self.use_attn_kd:
+                    _, feats_t, attn_maps_t = self.teacher(
+                        z, t.flatten(), labels_dropped,
+                        return_features=True,
+                        return_attn_maps=True,
+                        num_attn_layers=self.num_attn_layers,
+                    )
+                else:
+                    _, feats_t = self.teacher(z, t.flatten(), labels_dropped, return_features=True)
 
             # Compute ViTKD loss
             # feats_s = [low_s, high_s] where low_s: [B, 2, N, D_s], high_s: [B, N, D_s]
             # feats_t = [low_t, high_t] where low_t: [B, 2, N, D_t], high_t: [B, N, D_t]
-            loss_vitkd = self.vitkd_loss(feats_s, feats_t)
+            if self.skip_vitkd:
+                loss_vitkd = torch.tensor(0.0, device=loss_x.device)
+            else:
+                loss_vitkd = self.vitkd_loss(feats_s, feats_t)
 
-            # Total loss
-            loss = loss_x + loss_vitkd
+            # Compute attention KD loss (pass t.flatten() for timestep gating)
+            if self.use_attn_kd:
+                loss_attn_kd = self.attn_kd_loss(attn_maps_s, attn_maps_t, t.flatten())
+                self.loss_attn_kd = loss_attn_kd.detach()
+                loss = loss_x + loss_vitkd + loss_attn_kd
+            else:
+                loss = loss_x + loss_vitkd
 
             # Store individual losses for logging (attach as attributes)
             self.loss_x = loss_x.detach()
@@ -180,6 +223,8 @@ class DistillDenoiser(nn.Module):
             loss = loss_x
             self.loss_x = loss_x.detach()
             self.loss_vitkd = torch.tensor(0.0, device=loss.device)
+            if self.use_attn_kd:
+                self.loss_attn_kd = torch.tensor(0.0, device=loss.device)
 
         return loss
 

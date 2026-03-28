@@ -130,6 +130,25 @@ def get_args_parser():
                         help='Masking ratio for ViTKD generation loss')
     parser.add_argument('--mimic_only', action='store_true',
                         help='Only use shallow mimicking loss; skip the deep generation loss')
+    parser.add_argument('--skip_vitkd', action='store_true',
+                        help='Skip ViTKD (both mimicking and generation losses)')
+
+    # Attention KD loss arguments
+    parser.add_argument('--use_attn_kd', action='store_true',
+                        help='Enable attention map KL-divergence distillation loss')
+    parser.add_argument('--gamma_attn', type=float, default=1e-4,
+                        help='Scale factor for attention KD loss (default: 1e-4)')
+    parser.add_argument('--num_attn_layers', type=int, default=2,
+                        help='Number of last transformer blocks from which to extract '
+                             'attention maps for KD (default: 2)')
+    parser.add_argument('--t_min_attn', type=float, default=0.1,
+                        help='Timestep gate threshold: samples with t <= this value are '
+                             'excluded from attention KD loss (default: 0.1)')
+    parser.add_argument('--attn_kd_eps', type=float, default=1e-8,
+                        help='Epsilon added to attention weights before log for numerical '
+                             'stability (default: 1e-8)')
+    parser.add_argument('--attn_kd_asymmetric', action='store_true',
+                        help='Use asymmetric KL(student||teacher) instead of symmetric KL')
 
     return parser
 
