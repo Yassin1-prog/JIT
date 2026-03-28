@@ -232,7 +232,7 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
         else:
             raise NotImplementedError
         real_img_dir = args.real_img_dir if args.real_img_dir else None
-        compute_kid_prc = real_img_dir is not None
+        compute_kid = real_img_dir is not None
         metrics_dict = torch_fidelity.calculate_metrics(
             input1=save_folder,
             input2=real_img_dir,
@@ -240,8 +240,8 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
             cuda=True,
             isc=True,
             fid=True,
-            kid=compute_kid_prc,
-            prc=compute_kid_prc,
+            kid=compute_kid,
+            prc=False,   # set to True will cause OOM for 50k images
             verbose=False,
             samples_find_deep=True,
         )
@@ -253,14 +253,10 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
         log_writer.add_scalar('is{}'.format(postfix), inception_score, epoch)
         print("FID: {:.4f}, Inception Score: {:.4f}".format(fid, inception_score))
 
-        if compute_kid_prc:
+        if compute_kid:
             kid = metrics_dict['kernel_inception_distance_mean']
-            precision = metrics_dict['precision']
-            recall = metrics_dict['recall']
             log_writer.add_scalar('kid{}'.format(postfix), kid, epoch)
-            log_writer.add_scalar('precision{}'.format(postfix), precision, epoch)
-            log_writer.add_scalar('recall{}'.format(postfix), recall, epoch)
-            print("KID: {:.4f}, Precision: {:.4f}, Recall: {:.4f}".format(kid, precision, recall))
+            print("KID: {:.4f}".format(kid))
 
         # Log inference timing metrics
         log_writer.add_scalar('inference_time_total_sec{}'.format(postfix),

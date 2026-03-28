@@ -6,7 +6,6 @@
   <img src="demo/visual.jpg" width="100%">
 </p>
 
-
 This is a PyTorch/GPU re-implementation of the paper [Back to Basics: Let Denoising Generative Models Denoise](https://arxiv.org/abs/2511.13720):
 
 ```
@@ -18,7 +17,7 @@ This is a PyTorch/GPU re-implementation of the paper [Back to Basics: Let Denois
 }
 ```
 
-JiT adopts a minimalist and self-contained design for pixel-level high-resolution image diffusion. 
+JiT adopts a minimalist and self-contained design for pixel-level high-resolution image diffusion.
 The original implementation was in JAX+TPU. This re-implementation is in PyTorch+GPU.
 
 <p align="center">
@@ -26,9 +25,11 @@ The original implementation was in JAX+TPU. This re-implementation is in PyTorch
 </p>
 
 ### Dataset
+
 Download [ImageNet](http://image-net.org/download) dataset, and place it in your `IMAGENET_PATH`.
 
 The expected directory structure:
+
 ```
 IMAGENET_PATH/
 ├── n01440764/  (class folder)
@@ -43,6 +44,7 @@ IMAGENET_PATH/
 ### Installation
 
 Download the code:
+
 ```
 git clone https://github.com/LTH14/JiT.git
 cd JiT
@@ -55,17 +57,21 @@ conda env create -f environment.yaml
 conda activate jit
 ```
 
-If you get ```undefined symbol: iJIT_NotifyEvent``` when importing ```torch```, simply
+If you get `undefined symbol: iJIT_NotifyEvent` when importing `torch`, simply
+
 ```
 pip uninstall torch
 pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124
 ```
+
 Check this [issue](https://github.com/conda/conda/issues/13812#issuecomment-2071445372) for more details.
 
 ### Training
+
 The below training scripts have been tested on a single GPU setup.
 
 Example script for training JiT-B/16 on ImageNet 256x256 for 600 epochs:
+
 ```
 python main_jit.py \
 --model JiT-B/16 \
@@ -75,11 +81,12 @@ python main_jit.py \
 --batch_size 128 --blr 5e-5 \
 --epochs 600 --warmup_epochs 5 \
 --gen_bsz 128 --num_images 50000 --cfg 2.9 --interval_min 0.1 --interval_max 1.0 \
---output_dir ${OUTPUT_DIR} --resume ${OUTPUT_DIR} \
+--output_dir ${OUTPUT_DIR} --resume ${OUTPUT_DIR}/checkpoint-last.pth \
 --data_path ${IMAGENET_PATH} --online_eval
 ```
 
 Example script for training JiT-B/32 on ImageNet 512x512 for 600 epochs:
+
 ```
 python main_jit.py \
 --model JiT-B/32 \
@@ -89,11 +96,12 @@ python main_jit.py \
 --batch_size 128 --blr 5e-5 \
 --epochs 600 --warmup_epochs 5 \
 --gen_bsz 128 --num_images 50000 --cfg 2.9 --interval_min 0.1 --interval_max 1.0 \
---output_dir ${OUTPUT_DIR} --resume ${OUTPUT_DIR} \
+--output_dir ${OUTPUT_DIR} --resume ${OUTPUT_DIR}/checkpoint-last.pth \
 --data_path ${IMAGENET_PATH} --online_eval
 ```
 
 Example script for training JiT-H/16 on ImageNet 256x256 for 600 epochs:
+
 ```
 python main_jit.py \
 --model JiT-H/16 \
@@ -103,48 +111,52 @@ python main_jit.py \
 --batch_size 128 --blr 5e-5 \
 --epochs 600 --warmup_epochs 5 \
 --gen_bsz 128 --num_images 50000 --cfg 2.2 --interval_min 0.1 --interval_max 1.0 \
---output_dir ${OUTPUT_DIR} --resume ${OUTPUT_DIR} \
+--output_dir ${OUTPUT_DIR} --resume ${OUTPUT_DIR}/checkpoint-last.pth \
 --data_path ${IMAGENET_PATH} --online_eval
 ```
 
 ### Evaluation
 
 PyTorch pre-trained models are available [here](https://www.dropbox.com/scl/fo/3ken1avtsd81ip67b9qpi/AK218ZNvXKSv74igVvht4PQ?rlkey=14gjrblmljewpl6ygxzlr3njm&st=ffkl77al&dl=0).
+Set `CKPT_PATH` to the checkpoint file you want to evaluate (for example, `${CKPT_DIR}/checkpoint-last.pth`).
 
 Evaluate pre-trained JiT-B:
+
 ```
 python main_jit.py \
 --model JiT-B/16 (or JiT-B/32) \
 --img_size 256 (or 512) --noise_scale 1.0 (or 2.0) \
 --gen_bsz 256 --num_images 50000 --cfg 3.0 --interval_min 0.1 --interval_max 1.0 \
---output_dir ${CKPT_DIR} --resume ${CKPT_DIR} \
+--output_dir ${CKPT_DIR} --resume ${CKPT_PATH} \
 --data_path ${IMAGENET_PATH} --evaluate_gen
 ```
 
 Evaluate pre-trained JiT-L:
+
 ```
 python main_jit.py \
 --model JiT-L/16 (or JiT-L/32) \
 --img_size 256 (or 512) --noise_scale 1.0 (or 2.0) \
 --gen_bsz 256 --num_images 50000 --cfg 2.4 (or 2.5) --interval_min 0.1 --interval_max 1.0 \
---output_dir ${CKPT_DIR} --resume ${CKPT_DIR} \
+--output_dir ${CKPT_DIR} --resume ${CKPT_PATH} \
 --data_path ${IMAGENET_PATH} --evaluate_gen
 ```
 
 Evaluate pre-trained JiT-H:
+
 ```
 python main_jit.py \
 --model JiT-H/16 (or JiT-H/32) \
 --img_size 256 (or 512) --noise_scale 1.0 (or 2.0) \
 --gen_bsz 256 --num_images 50000 --cfg 2.2 (or 2.3) --interval_min 0.1 --interval_max 1.0 \
---output_dir ${CKPT_DIR} --resume ${CKPT_DIR} \
+--output_dir ${CKPT_DIR} --resume ${CKPT_PATH} \
 --data_path ${IMAGENET_PATH} --evaluate_gen
 ```
 
-We use a customized [```torch-fidelity```](https://github.com/LTH14/torch-fidelity)
-to evaluate FID and IS against a reference image folder or statistics. You can use ```prepare_ref.py```
+We use a customized [`torch-fidelity`](https://github.com/LTH14/torch-fidelity)
+to evaluate FID and IS against a reference image folder or statistics. You can use `prepare_ref.py`
 to prepare the reference image folder, or directly use our pre-computed reference stats
-under ```fid_stats```.
+under `fid_stats`.
 
 ### Acknowledgements
 

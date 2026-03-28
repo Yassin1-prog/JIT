@@ -100,7 +100,7 @@ def get_args_parser():
     parser.add_argument('--output_dir', default='./output_dir',
                         help='Directory to save outputs (empty for no saving)')
     parser.add_argument('--resume', default='',
-                        help='Folder that contains checkpoint to resume from')
+                        help='Path to checkpoint file to resume from (e.g. /path/to/checkpoint-last.pth)')
     parser.add_argument('--save_last_freq', type=int, default=5,
                         help='Frequency (in epochs) to save checkpoints')
     parser.add_argument('--log_freq', default=100, type=int)
@@ -235,9 +235,9 @@ def main(args):
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
     print(optimizer)
 
-    # Resume from checkpoint if provided
-    checkpoint_path = os.path.join(args.resume, "checkpoint-last.pth") if args.resume else None
-    if checkpoint_path and os.path.exists(checkpoint_path):
+    # Resume from checkpoint file if provided
+    checkpoint_path = args.resume if args.resume else None
+    if checkpoint_path and os.path.isfile(checkpoint_path):
         # IN NEWER PYTORCH VERSIONS LIKE IN KAGGLE IT DEFAULTS TO TRUE AND BLOCKS LOADING CHECKPOINT.PTH
         # DUE TO SECUIRITY ISSUES. SO NEED TO SPECIFY weights_only=False, ALTERNATIVE SOLUTION IS :
         # Tell PyTorch that argparse.Namespace is safe to load
@@ -284,7 +284,7 @@ def main(args):
             ema_state_dict2[name].cuda() if name in ema_state_dict2 else param.data.clone()
             for name, param in model_without_ddp.named_parameters()
         ]
-        print("Resumed checkpoint from", args.resume)
+        print("Resumed checkpoint from", checkpoint_path)
 
         if 'optimizer' in checkpoint and 'epoch' in checkpoint and not args.evaluate_gen:
             optimizer.load_state_dict(checkpoint['optimizer'])
@@ -296,6 +296,11 @@ def main(args):
             args.start_epoch = checkpoint['epoch'] + 1
         del checkpoint
     else:
+        if checkpoint_path:
+            raise FileNotFoundError(
+                f"Checkpoint file not found: {checkpoint_path}. "
+                "Pass --resume with a valid .pth file path."
+            )
         model_without_ddp.ema_params1 = copy.deepcopy(list(model_without_ddp.parameters()))
         model_without_ddp.ema_params2 = copy.deepcopy(list(model_without_ddp.parameters()))
         print("Training from scratch")
