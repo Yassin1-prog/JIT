@@ -44,33 +44,36 @@ class ViTKDLoss(nn.Module):
             self.align2 = nn.ModuleList([
                 nn.Linear(student_dims, teacher_dims, bias=True)  # For layer 0
                 for i in range(2)])                                # For layer 1
-            
+
             # For deep layer: Single linear layer for the last layer
             # Transforms [B, N, 192] → [B, N, 384]
-            self.align = nn.Linear(student_dims, teacher_dims, bias=True)
+            # Only used in the generation path; skip when mimic_only=True to avoid
+            # DDP unused-parameter errors.
+            self.align = None if mimic_only else nn.Linear(student_dims, teacher_dims, bias=True)
         else:
             # If dimensions already match, no alignment needed
             self.align2 = None
             self.align = None
 
-        # ═══════════════════════════════════════════════════════════════════════
-        # LEARNABLE MASK TOKEN: Used to replace masked positions during generation
-        # ═══════════════════════════════════════════════════════════════════════
-        # Shape: [1, 1, teacher_dims]
-        # These tokens are randomly initialized and learned during training
-        # They act as "placeholders" for missing information
-        self.mask_token = nn.Parameter(torch.zeros(1, 1, teacher_dims))
+        if not mimic_only:
+            # ═══════════════════════════════════════════════════════════════════════
+            # LEARNABLE MASK TOKEN: Used to replace masked positions during generation
+            # ═══════════════════════════════════════════════════════════════════════
+            # Shape: [1, 1, teacher_dims]
+            # These tokens are randomly initialized and learned during training
+            # They act as "placeholders" for missing information
+            self.mask_token = nn.Parameter(torch.zeros(1, 1, teacher_dims))
 
-        # ═══════════════════════════════════════════════════════════════════════
-        # GENERATION BLOCK: Convolutional layers to reconstruct teacher features
-        # ═══════════════════════════════════════════════════════════════════════
-        # This block takes partially masked features and tries to regenerate
-        # the complete teacher feature map
-        # Architecture: Conv → ReLU → Conv
-        self.generation = nn.Sequential(
-                nn.Conv2d(teacher_dims, teacher_dims, kernel_size=3, padding=1),
-                nn.ReLU(inplace=True), 
-                nn.Conv2d(teacher_dims, teacher_dims, kernel_size=3, padding=1))
+            # ═══════════════════════════════════════════════════════════════════════
+            # GENERATION BLOCK: Convolutional layers to reconstruct teacher features
+            # ═══════════════════════════════════════════════════════════════════════
+            # This block takes partially masked features and tries to regenerate
+            # the complete teacher feature map
+            # Architecture: Conv → ReLU → Conv
+            self.generation = nn.Sequential(
+                    nn.Conv2d(teacher_dims, teacher_dims, kernel_size=3, padding=1),
+                    nn.ReLU(inplace=True),
+                    nn.Conv2d(teacher_dims, teacher_dims, kernel_size=3, padding=1))
 
     def forward(self,
                 preds_S,    # Student's features: [low_s, high_s, mid_token]
