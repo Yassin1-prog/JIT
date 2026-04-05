@@ -2,12 +2,7 @@
 # Weight Selection Initialization for JIT Models
 # Based on: "Initializing Models with Larger Ones" (ICLR 2024)
 # --------------------------------------------------------
-"""Initialize a smaller JiT model from a larger teacher checkpoint.
-
-This script performs weight selection (uniform per-dimension subsampling when
-needed) to transfer compatible parameters from a larger teacher model to a
-smaller student model.
-
+"""
 Example:
     python weight_selection_jit.py ^
       --teacher_ckpt .\checkpoints\jit_s2_ckpt.pt ^
@@ -99,11 +94,25 @@ def validate_compatibility(teacher_name, student_name):
             f"Teacher must be deeper than student.")
 
     if t_cfg['patch_size'] != s_cfg['patch_size']:
-        print(f"[weight-init] WARNING: Cross-patch-size transfer "
+        print(f"\n[weight-init] WARNING: Cross-patch-size transfer "
               f"({teacher_name} ps={t_cfg['patch_size']} → "
-              f"{student_name} ps={s_cfg['patch_size']}). "
-              f"x_embedder and final_layer.linear will be initialized from scratch. "
-              f"All other weights (~97-99% of params) transfer normally.")
+              f"{student_name} ps={s_cfg['patch_size']}).\n"
+              f"  x_embedder uses different architectures "
+              f"(BottleneckPatchEmbed vs StandardPatchEmbed) so key names\n"
+              f"  don't match — x_embedder will be initialized from scratch.\n"
+              f"  final_layer.linear has incompatible output dimensions "
+              f"(patch_size^2 * channels differs) — also from scratch.\n"
+              f"  These layers are CRITICAL for inference: the input/output "
+              f"projections will be random,\n"
+              f"  rendering transferred backbone weights ineffective for "
+              f"zero-shot evaluation.\n"
+              f"  This initialization is only useful as a starting point for "
+              f"TRAINING (fine-tuning).\n")
+
+    if t_cfg['in_ctx_len'] != s_cfg['in_ctx_len']:
+        print(f"[weight-init] NOTE: in_context_len differs "
+              f"(teacher={t_cfg['in_ctx_len']}, student={s_cfg['in_ctx_len']}). "
+              f"in_context_posemb will be resized via uniform selection.")
 
     return t_cfg, s_cfg
 
@@ -254,6 +263,21 @@ def main():
 
     # Load teacher and apply weight selection
     teacher_sd = load_teacher_state_dict(args.teacher_ckpt, use_ema=args.use_ema)
+
+    # Detect class count mismatch between teacher checkpoint and student
+    teacher_cls_key = 'net.y_embedder.embedding_table.weight'
+    if teacher_cls_key in teacher_sd:
+        teacher_num_classes = teacher_sd[teacher_cls_key].shape[0]
+        student_num_classes = args.class_num + 1  # +1 for null/unconditional class
+        if teacher_num_classes != student_num_classes:
+            print(f"[weight-init] WARNING: Class count mismatch — teacher has "
+                  f"{teacher_num_classes} classes, student has {student_num_classes} "
+                  f"(class_num={args.class_num} + 1 null class).\n"
+                  f"  y_embedder class embeddings will be sampled across mismatched "
+                  f"label spaces (e.g. ImageNet → CIFAR-10).\n"
+                  f"  These transferred embeddings will be meaningless for "
+                  f"zero-shot evaluation.")
+
     selected = apply_weight_selection(teacher_sd, student, cross_patch_size=cross_patch)
 
     # Load selected weights into student to get a complete state dict

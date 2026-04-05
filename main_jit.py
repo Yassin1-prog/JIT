@@ -150,6 +150,15 @@ def get_args_parser():
     parser.add_argument('--attn_kd_asymmetric', action='store_true',
                         help='Use asymmetric KL(student||teacher) instead of symmetric KL')
 
+    # Cosine similarity loss arguments
+    parser.add_argument('--use_cosine_loss', action='store_true',
+                        help='Enable cosine similarity distillation loss on x_pred')
+    parser.add_argument('--delta_cosine', type=float, default=1e-2,
+                        help='Scale factor for cosine similarity loss (default: 1e-2)')
+    parser.add_argument('--t_min_cosine', type=float, default=0.0,
+                        help='Timestep gate for cosine loss; samples with t <= this '
+                             'are excluded (default: 0.0, disabled)')
+
     return parser
 
 

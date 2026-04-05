@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from model_jit import JiT_models
 from VITKD.vitkd import ViTKDLoss
 
@@ -126,6 +127,14 @@ class DistillDenoiser(nn.Module):
             self.num_attn_layers = getattr(args, 'num_attn_layers', 2)
 
         # ====================================================================
+        # COSINE SIMILARITY LOSS (parameter-free, inline)
+        # ====================================================================
+        self.use_cosine_loss = getattr(args, 'use_cosine_loss', False)
+        if self.use_cosine_loss:
+            self.delta_cosine = getattr(args, 'delta_cosine', 1e-2)
+            self.t_min_cosine = getattr(args, 't_min_cosine', 0.0)
+
+        # ====================================================================
         # DENOISING PARAMETERS (same as Denoiser)
         # ====================================================================
         self.label_drop_prob = args.label_drop_prob
@@ -210,16 +219,16 @@ class DistillDenoiser(nn.Module):
                 # Teacher must be in eval mode
                 self.teacher.eval()
 
-                # Get teacher features (no need for predictions)
+                # Get teacher features and predictions
                 if self.use_attn_kd:
-                    _, feats_t, attn_maps_t = self.teacher(
+                    x_pred_t, feats_t, attn_maps_t = self.teacher(
                         z, t.flatten(), labels_dropped,
                         return_features=True,
                         return_attn_maps=True,
                         num_attn_layers=self.num_attn_layers,
                     )
                 else:
-                    _, feats_t = self.teacher(z, t.flatten(), labels_dropped, return_features=True)
+                    x_pred_t, feats_t = self.teacher(z, t.flatten(), labels_dropped, return_features=True)
 
             # Compute ViTKD loss
             # feats_s = [low_s, high_s] where low_s: [B, 2, N, D_s], high_s: [B, N, D_s]
@@ -233,9 +242,28 @@ class DistillDenoiser(nn.Module):
             if self.use_attn_kd:
                 loss_attn_kd = self.attn_kd_loss(attn_maps_s, attn_maps_t, t.flatten())
                 self.loss_attn_kd = loss_attn_kd.detach()
-                loss = loss_x + loss_vitkd + loss_attn_kd
+
+            # Compute cosine similarity loss on predicted clean images
+            if self.use_cosine_loss:
+                x_s_flat = x_pred.flatten(1)    # [B, 3*H*W]
+                x_t_flat = x_pred_t.flatten(1)  # [B, 3*H*W]
+                cos_sim = F.cosine_similarity(x_s_flat, x_t_flat, dim=1)  # [B]
+                if self.t_min_cosine > 0.0:
+                    valid = t.flatten() > self.t_min_cosine
+                    if valid.any():
+                        loss_cosine = self.delta_cosine * (1 - cos_sim[valid]).mean()
+                    else:
+                        loss_cosine = torch.tensor(0.0, device=loss_x.device)
+                else:
+                    loss_cosine = self.delta_cosine * (1 - cos_sim).mean()
+                self.loss_cosine = loss_cosine.detach()
             else:
-                loss = loss_x + loss_vitkd
+                loss_cosine = torch.tensor(0.0, device=loss_x.device)
+
+            # Assemble total loss
+            loss = loss_x + loss_vitkd + loss_cosine
+            if self.use_attn_kd:
+                loss = loss + loss_attn_kd
 
             # Store individual losses for logging (attach as attributes)
             self.loss_x = loss_x.detach()
@@ -247,6 +275,8 @@ class DistillDenoiser(nn.Module):
             self.loss_vitkd = torch.tensor(0.0, device=loss.device)
             if self.use_attn_kd:
                 self.loss_attn_kd = torch.tensor(0.0, device=loss.device)
+            if self.use_cosine_loss:
+                self.loss_cosine = torch.tensor(0.0, device=loss.device)
 
         return loss
 
