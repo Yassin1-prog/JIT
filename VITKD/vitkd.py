@@ -3,6 +3,26 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+class AdaLNAlign(nn.Module):
+    """Linear projection with adaLN-style shift+scale modulation.
+    Zero-initialized so initial behavior = plain nn.Linear.
+    """
+    def __init__(self, student_dims, teacher_dims, cond_dims):
+        super().__init__()
+        self.linear = nn.Linear(student_dims, teacher_dims, bias=True)
+        self.adaLN_modulation = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(cond_dims, 2 * teacher_dims, bias=True)
+        )
+        nn.init.constant_(self.adaLN_modulation[-1].weight, 0)
+        nn.init.constant_(self.adaLN_modulation[-1].bias, 0)
+
+    def forward(self, x, c):
+        x = self.linear(x)
+        shift, scale = self.adaLN_modulation(c).chunk(2, dim=-1)
+        return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
+
+
 class ViTKDLoss(nn.Module):
     """
     ViTKD (Vision Transformer Knowledge Distillation) Loss Module
@@ -42,8 +62,8 @@ class ViTKDLoss(nn.Module):
             # Each transforms student features from D_student → D_teacher
             # Example: [B, N, 192] → [B, N, 384]
             self.align2 = nn.ModuleList([
-                nn.Linear(student_dims, teacher_dims, bias=True)  # For layer 0
-                for i in range(2)])                                # For layer 1
+                AdaLNAlign(student_dims, teacher_dims, cond_dims=student_dims)
+                for i in range(2)])
 
             # For deep layer: Single linear layer for the last layer
             # Transforms [B, N, 192] → [B, N, 384]
@@ -76,8 +96,9 @@ class ViTKDLoss(nn.Module):
                     nn.Conv2d(teacher_dims, teacher_dims, kernel_size=3, padding=1))
 
     def forward(self,
-                preds_S,    # Student's features: [low_s, high_s, mid_token]
-                preds_T):   # Teacher's features: [low_t, high_t]
+                preds_S,    # Student's features: [low_s, high_s, c]
+                preds_T,    # Teacher's features: [low_t, high_t, c_t]
+                c=None):    # Student conditioning vector [B, D_student] (timestep + class)
         """
         Compute the ViTKD loss by combining mimicking and generation losses.
         
@@ -112,6 +133,10 @@ class ViTKDLoss(nn.Module):
         high_s = preds_S[1]  # Student: [B, N, D_student] - captures semantic information
         high_t = preds_T[1]  # Teacher: [B, N, D_teacher]
 
+        # Extract conditioning vector if not passed explicitly
+        if c is None and len(preds_S) > 2:
+            c = preds_S[2]
+
         # Get batch size for loss normalization
         B = low_s.shape[0]
         
@@ -130,14 +155,14 @@ class ViTKDLoss(nn.Module):
             # Process each shallow layer separately
             for i in range(2):  # Iterate over layer 0 and layer 1
                 if i == 0:
-                    # Transform layer 0: [B, N, 192] → [B, N, 384]
+                    # Transform layer 0: [B, N, 192] → [B, N, 384] (timestep-conditioned)
                     # Then add dimension: [B, N, 384] → [B, 1, N, 384]
-                    xc = self.align2[i](low_s[:,i]).unsqueeze(1)
+                    xc = self.align2[i](low_s[:,i], c).unsqueeze(1)
                 else:
-                    # Transform layer 1: [B, N, 192] → [B, N, 384]
+                    # Transform layer 1: [B, N, 192] → [B, N, 384] (timestep-conditioned)
                     # Add dimension: [B, N, 384] → [B, 1, N, 384]
                     # Concatenate with layer 0: [B, 1, N, 384] + [B, 1, N, 384] → [B, 2, N, 384]
-                    xc = torch.cat((xc, self.align2[i](low_s[:,i]).unsqueeze(1)), dim=1)
+                    xc = torch.cat((xc, self.align2[i](low_s[:,i], c).unsqueeze(1)), dim=1)
         else:
             # Dimensions already match, no alignment needed
             xc = low_s

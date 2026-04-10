@@ -236,7 +236,8 @@ class DistillDenoiser(nn.Module):
             if self.skip_vitkd:
                 loss_vitkd = torch.tensor(0.0, device=loss_x.device)
             else:
-                loss_vitkd = self.vitkd_loss(feats_s, feats_t)
+                c_student = feats_s[2]  # student conditioning: [B, hidden_size]
+                loss_vitkd = self.vitkd_loss(feats_s, feats_t, c=c_student)
 
             # Compute attention KD loss (pass t.flatten() for timestep gating)
             if self.use_attn_kd:

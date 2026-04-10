@@ -291,7 +291,7 @@ def main(args):
         missing, unexpected2 = model_without_ddp.load_state_dict(checkpoint_model, strict=False)
         teacher_missing = [k for k in missing if k.startswith('teacher.')]
         rope_missing = [k for k in missing if k.endswith(('freqs_cos', 'freqs_sin'))]
-        non_teacher_missing = [k for k in missing if not k.startswith('teacher.') and not k.endswith(('freqs_cos', 'freqs_sin'))]
+        non_teacher_missing = [k for k in missing if not k.startswith('teacher.') and not k.endswith(('freqs_cos', 'freqs_sin')) and 'adaLN_modulation' not in k]
         if teacher_missing:
             print(f"[INFO] {len(teacher_missing)} teacher.* keys not in checkpoint "
                   f"(expected — teacher is re-loaded from teacher_ckpt at init).")

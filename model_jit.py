@@ -447,7 +447,7 @@ class JiT(nn.Module):
             high_feat_raw = block_outputs[-1]  # [B, N + in_context_len, D]
             high_feats = high_feat_raw[:, self.in_context_len:]  # [B, N, D]
 
-            features = [low_feats, high_feats]
+            features = [low_feats, high_feats, c]
 
         # Post-process attention maps: strip in-context tokens and head-average
         if return_attn_maps:
