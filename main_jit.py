@@ -130,6 +130,9 @@ def get_args_parser():
                         help='Masking ratio for ViTKD generation loss')
     parser.add_argument('--mimic_only', action='store_true',
                         help='Only use shallow mimicking loss; skip the deep generation loss')
+    parser.add_argument('--mimic_time_conditioning', action='store_true',
+                        help='Use timestep-conditioned shallow mimicking in ViTKD. '
+                             'If disabled, use plain linear mimicking.')
     parser.add_argument('--skip_vitkd', action='store_true',
                         help='Skip ViTKD (both mimicking and generation losses)')
 

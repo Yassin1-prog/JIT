@@ -108,6 +108,7 @@ class DistillDenoiser(nn.Module):
                 beta_vitkd=args.beta_vitkd,
                 lambda_vitkd=args.lambda_vitkd,
                 mimic_only=getattr(args, 'mimic_only', False),
+                use_mimic_time_conditioning=getattr(args, 'mimic_time_conditioning', False),
             )
         else:
             self.vitkd_loss = None

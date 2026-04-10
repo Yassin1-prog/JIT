@@ -44,6 +44,7 @@ class ViTKDLoss(nn.Module):
                  beta_vitkd=0.000003,   # Weight for deep layer generation loss
                  lambda_vitkd=0.5,      # Masking ratio (0.5 = mask 50% of tokens)
                  mimic_only=False,      # If True, skip generation loss (only use mimicking)
+                 use_mimic_time_conditioning=False,  # If True, use c-conditioned mimicking
                  ):
         super(ViTKDLoss, self).__init__()
         
@@ -52,6 +53,7 @@ class ViTKDLoss(nn.Module):
         self.beta_vitkd = beta_vitkd        # Scales the generation loss (default: 3e-6)
         self.lambda_vitkd = lambda_vitkd    # Controls how many tokens to mask (default: 0.5)
         self.mimic_only = mimic_only        # Skip generation loss when True
+        self.use_mimic_time_conditioning = use_mimic_time_conditioning
     
         # ═══════════════════════════════════════════════════════════════════════
         # ALIGNMENT LAYERS: Match student's dimension to teacher's dimension
@@ -61,9 +63,16 @@ class ViTKDLoss(nn.Module):
             # For shallow layers: Need separate linear layers for layer 0 and layer 1
             # Each transforms student features from D_student → D_teacher
             # Example: [B, N, 192] → [B, N, 384]
-            self.align2 = nn.ModuleList([
-                AdaLNAlign(student_dims, teacher_dims, cond_dims=student_dims)
-                for i in range(2)])
+            if self.use_mimic_time_conditioning:
+                self.align2 = nn.ModuleList([
+                    AdaLNAlign(student_dims, teacher_dims, cond_dims=student_dims)
+                    for i in range(2)
+                ])
+            else:
+                self.align2 = nn.ModuleList([
+                    nn.Linear(student_dims, teacher_dims, bias=True)
+                    for i in range(2)
+                ])
 
             # For deep layer: Single linear layer for the last layer
             # Transforms [B, N, 192] → [B, N, 384]
@@ -134,7 +143,7 @@ class ViTKDLoss(nn.Module):
         high_t = preds_T[1]  # Teacher: [B, N, D_teacher]
 
         # Extract conditioning vector if not passed explicitly
-        if c is None and len(preds_S) > 2:
+        if self.use_mimic_time_conditioning and c is None and len(preds_S) > 2:
             c = preds_S[2]
 
         # Get batch size for loss normalization
@@ -151,18 +160,18 @@ class ViTKDLoss(nn.Module):
         
         if self.align2 is not None:
             # Need to align dimensions: student (192) → teacher (384)
-            
-            # Process each shallow layer separately
-            for i in range(2):  # Iterate over layer 0 and layer 1
-                if i == 0:
-                    # Transform layer 0: [B, N, 192] → [B, N, 384] (timestep-conditioned)
-                    # Then add dimension: [B, N, 384] → [B, 1, N, 384]
-                    xc = self.align2[i](low_s[:,i], c).unsqueeze(1)
+            if self.use_mimic_time_conditioning and c is None:
+                raise ValueError(
+                    "ViTKDLoss requires conditioning vector c when use_mimic_time_conditioning=True"
+                )
+
+            aligned_low = []
+            for i in range(2):
+                if self.use_mimic_time_conditioning:
+                    aligned_low.append(self.align2[i](low_s[:, i], c))
                 else:
-                    # Transform layer 1: [B, N, 192] → [B, N, 384] (timestep-conditioned)
-                    # Add dimension: [B, N, 384] → [B, 1, N, 384]
-                    # Concatenate with layer 0: [B, 1, N, 384] + [B, 1, N, 384] → [B, 2, N, 384]
-                    xc = torch.cat((xc, self.align2[i](low_s[:,i], c).unsqueeze(1)), dim=1)
+                    aligned_low.append(self.align2[i](low_s[:, i]))
+            xc = torch.stack(aligned_low, dim=1)
         else:
             # Dimensions already match, no alignment needed
             xc = low_s
