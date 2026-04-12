@@ -45,15 +45,19 @@ class ViTKDLoss(nn.Module):
                  lambda_vitkd=0.5,      # Masking ratio (0.5 = mask 50% of tokens)
                  mimic_only=False,      # If True, skip generation loss (only use mimicking)
                  use_mimic_time_conditioning=False,  # If True, use c-conditioned mimicking
+                 snr_gamma=0.0,       # 0 = disabled, >0 = Min-SNR-gamma weighting
+                 snr_eps=1e-4,        # Numerical stability for (1-t) denominator
                  ):
         super(ViTKDLoss, self).__init__()
-        
+
         # Store hyperparameters
         self.alpha_vitkd = alpha_vitkd      # Scales the mimicking loss (default: 3e-5)
         self.beta_vitkd = beta_vitkd        # Scales the generation loss (default: 3e-6)
         self.lambda_vitkd = lambda_vitkd    # Controls how many tokens to mask (default: 0.5)
         self.mimic_only = mimic_only        # Skip generation loss when True
         self.use_mimic_time_conditioning = use_mimic_time_conditioning
+        self.snr_gamma = snr_gamma
+        self.snr_eps = snr_eps
     
         # ═══════════════════════════════════════════════════════════════════════
         # ALIGNMENT LAYERS: Match student's dimension to teacher's dimension
@@ -104,10 +108,23 @@ class ViTKDLoss(nn.Module):
                     nn.ReLU(inplace=True),
                     nn.Conv2d(teacher_dims, teacher_dims, kernel_size=3, padding=1))
 
+    def _snr_weights(self, t):
+        """Compute Min-SNR-gamma per-sample weights from raw timestep t.
+
+        For flow matching with z = t*x + (1-t)*e:
+          SNR(t) = (t / (1-t))^2
+          weight = clamp(SNR, max=gamma) / gamma   in [0, 1]
+        """
+        if self.snr_gamma <= 0.0 or t is None:
+            return None
+        snr = (t / (1 - t).clamp_min(self.snr_eps)) ** 2
+        return torch.clamp(snr, max=self.snr_gamma) / self.snr_gamma
+
     def forward(self,
                 preds_S,    # Student's features: [low_s, high_s, c]
                 preds_T,    # Teacher's features: [low_t, high_t, c_t]
-                c=None):    # Student conditioning vector [B, D_student] (timestep + class)
+                c=None,     # Student conditioning vector [B, D_student] (timestep + class)
+                t=None):    # Raw timestep [B] for SNR weighting
         """
         Compute the ViTKD loss by combining mimicking and generation losses.
         
@@ -148,16 +165,16 @@ class ViTKDLoss(nn.Module):
 
         # Get batch size for loss normalization
         B = low_s.shape[0]
-        
-        # Define MSE loss with sum reduction (will normalize by batch size manually)
-        loss_mse = nn.MSELoss(reduction='sum')
+
+        # Compute per-sample SNR weights (None if disabled)
+        snr_w = self._snr_weights(t)
 
         # ═══════════════════════════════════════════════════════════════════════
         # PART 1: MIMICKING MODULE (Shallow Layers Distillation)
         # ═══════════════════════════════════════════════════════════════════════
         # Goal: Make student's early layers focus on similar patterns as teacher
         # Method: Direct alignment + MSE loss
-        
+
         if self.align2 is not None:
             # Need to align dimensions: student (192) → teacher (384)
             if self.use_mimic_time_conditioning and c is None:
@@ -178,8 +195,12 @@ class ViTKDLoss(nn.Module):
 
         # Compute mimicking loss: MSE between aligned student and teacher shallow features
         # Normalize by batch size and scale by alpha
-        # Formula: L_lr = (1/B) * α * MSE(xc, low_t)
-        loss_lr = loss_mse(xc, low_t) / B * self.alpha_vitkd
+        if snr_w is not None:
+            per_sample_lr = ((xc - low_t) ** 2).sum(dim=(1, 2, 3))   # [B]
+            loss_lr = (per_sample_lr * snr_w).sum() / B * self.alpha_vitkd
+        else:
+            loss_mse = nn.MSELoss(reduction='sum')
+            loss_lr = loss_mse(xc, low_t) / B * self.alpha_vitkd
 
         # ═══════════════════════════════════════════════════════════════════════
         # PART 2: GENERATION MODULE (Deep Layer Distillation)
@@ -242,12 +263,13 @@ class ViTKDLoss(nn.Module):
         # Step 5: Compute generation loss (only on masked tokens)
         # Multiply by mask to focus loss only on reconstructed (masked) positions
         # Element-wise multiplication: [B, N, D] * [B, N, 1] → [B, N, D]
-        loss_gen = loss_mse(torch.mul(x, mask), torch.mul(high_t, mask))
-        
-        # Normalize by batch size, scale by beta, and divide by lambda
-        # Division by lambda compensates for having fewer masked tokens to compare
-        # Formula: L_gen = (1/B) * (β/λ) * MSE(x ⊙ mask, high_t ⊙ mask)
-        loss_gen = loss_gen / B * self.beta_vitkd / self.lambda_vitkd
+        if snr_w is not None:
+            per_sample_gen = ((x * mask - high_t * mask) ** 2).sum(dim=(1, 2))  # [B]
+            loss_gen = (per_sample_gen * snr_w).sum() / B * self.beta_vitkd / self.lambda_vitkd
+        else:
+            loss_mse = nn.MSELoss(reduction='sum')
+            loss_gen = loss_mse(torch.mul(x, mask), torch.mul(high_t, mask))
+            loss_gen = loss_gen / B * self.beta_vitkd / self.lambda_vitkd
         
         # ═══════════════════════════════════════════════════════════════════════
         # RETURN COMBINED LOSS

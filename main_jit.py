@@ -133,6 +133,9 @@ def get_args_parser():
     parser.add_argument('--mimic_time_conditioning', action='store_true',
                         help='Use timestep-conditioned shallow mimicking in ViTKD. '
                              'If disabled, use plain linear mimicking.')
+    parser.add_argument('--snr_gamma', type=float, default=0.0,
+                        help='Min-SNR-gamma for ViTKD loss weighting. '
+                             '0=disabled. Recommended range: 0.25-1.0')
     parser.add_argument('--skip_vitkd', action='store_true',
                         help='Skip ViTKD (both mimicking and generation losses)')
 

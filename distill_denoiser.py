@@ -109,6 +109,7 @@ class DistillDenoiser(nn.Module):
                 lambda_vitkd=args.lambda_vitkd,
                 mimic_only=getattr(args, 'mimic_only', False),
                 use_mimic_time_conditioning=getattr(args, 'mimic_time_conditioning', False),
+                snr_gamma=getattr(args, 'snr_gamma', 0.0),
             )
         else:
             self.vitkd_loss = None
@@ -238,7 +239,7 @@ class DistillDenoiser(nn.Module):
                 loss_vitkd = torch.tensor(0.0, device=loss_x.device)
             else:
                 c_student = feats_s[2]  # student conditioning: [B, hidden_size]
-                loss_vitkd = self.vitkd_loss(feats_s, feats_t, c=c_student)
+                loss_vitkd = self.vitkd_loss(feats_s, feats_t, c=c_student, t=t.flatten())
 
             # Compute attention KD loss (pass t.flatten() for timestep gating)
             if self.use_attn_kd:
