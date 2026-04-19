@@ -31,6 +31,7 @@ from denoiser import Denoiser
 JIT_CONFIGS = {
     'JiT-T/2':  dict(patch_size=2,  hidden=384,  depth=6,  heads=6,  bottleneck=0,   in_ctx_len=8),
     'JiT-S/2':  dict(patch_size=2,  hidden=512,  depth=10, heads=8,  bottleneck=0,   in_ctx_len=8),
+    'JiT-S/16': dict(patch_size=16, hidden=384,  depth=12, heads=6,  bottleneck=128,  in_ctx_len=32),
     'JiT-B/16': dict(patch_size=16, hidden=768,  depth=12, heads=12, bottleneck=128,  in_ctx_len=32),
     'JiT-B/32': dict(patch_size=32, hidden=768,  depth=12, heads=12, bottleneck=128,  in_ctx_len=32),
     'JiT-L/16': dict(patch_size=16, hidden=1024, depth=24, heads=16, bottleneck=128,  in_ctx_len=32),
