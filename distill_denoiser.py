@@ -58,6 +58,28 @@ class DistillDenoiser(nn.Module):
             if any(k.startswith('net.') for k in state_dict.keys()):
                 state_dict = {k[len('net.'):]: v for k, v in state_dict.items() if k.startswith('net.')}
 
+            # Remap teacher y_embedder if trained on more classes than student
+            _CLS_KEY = 'y_embedder.embedding_table.weight'
+            _IMAGENET10_INDICES = [0, 217, 482, 491, 497, 566, 569, 571, 574, 701]
+            if _CLS_KEY in state_dict:
+                tw = state_dict[_CLS_KEY]
+                expected = args.class_num + 1
+                if tw.shape[0] != expected:
+                    if tw.shape[0] == 1001 and args.class_num == 10:
+                        teacher_null_idx = tw.shape[0] - 1
+                        rows = torch.cat([
+                            tw[_IMAGENET10_INDICES],
+                            tw[teacher_null_idx].unsqueeze(0),
+                        ], dim=0)
+                        state_dict[_CLS_KEY] = rows
+                        print(f"[INFO] Remapped teacher y_embedder: {tw.shape[0]} → {rows.shape[0]} classes "
+                              f"using standard 10-class ImageNet indices.")
+                    else:
+                        raise RuntimeError(
+                            f"Teacher y_embedder shape mismatch ({tw.shape[0]} vs {expected}) "
+                            f"and no hardcoded mapping exists for this combination."
+                        )
+
             missing, unexpected = self.teacher.load_state_dict(state_dict, strict=False)
 
             # RoPE cosine/sine buffers are deterministic functions of model
