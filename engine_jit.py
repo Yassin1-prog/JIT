@@ -230,15 +230,19 @@ def evaluate(model_without_ddp, args, epoch, batch_size=64, log_writer=None):
 
     # compute FID and IS
     if log_writer is not None:
-        if args.img_size == 256:
-            fid_statistics_file = 'fid_stats/jit_in256_stats.npz'
-        elif args.img_size == 512:
-            fid_statistics_file = 'fid_stats/jit_in512_stats.npz'
-        elif args.img_size == 32:
-            # for debugging will be initially for the 10k split of cifar10
-            fid_statistics_file = 'fid_stats/jit_in32_test_stats.npz'
+        # Use provided fid_stats_file or determine based on img_size
+        if args.fid_stats_file:
+            fid_statistics_file = args.fid_stats_file
         else:
-            raise NotImplementedError
+            if args.img_size == 256:
+                fid_statistics_file = 'fid_stats/jit_in256_stats.npz'
+            elif args.img_size == 512:
+                fid_statistics_file = 'fid_stats/jit_in512_stats.npz'
+            elif args.img_size == 32:
+                # for debugging will be initially for the 10k split of cifar10
+                fid_statistics_file = 'fid_stats/jit_in32_test_stats.npz'
+            else:
+                raise NotImplementedError
         real_img_dir = args.real_img_dir if args.real_img_dir else None
         compute_kid = real_img_dir is not None
         metrics_dict = torch_fidelity.calculate_metrics(

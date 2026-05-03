@@ -92,6 +92,9 @@ def get_args_parser():
     parser.add_argument('--real_img_dir', default='', type=str,
                         help='Path to real images directory for KID computation. '
                              'If empty, KID will not be calculated.')
+    parser.add_argument('--fid_stats_file', default='', type=str,
+                        help='Path to pre-computed FID statistics file (.npz). '
+                             'If empty, will use default based on img_size.')
     parser.add_argument('--keep_gen_images', action='store_true',
                         help='Keep generated images after evaluation instead of deleting them. '
                              'Use when you intend to run compute_cmmd.py afterwards.')
