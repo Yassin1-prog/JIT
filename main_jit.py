@@ -275,12 +275,24 @@ def main(args):
 
     # Resume from checkpoint file if provided
     checkpoint_path = args.resume if args.resume else None
-    if checkpoint_path and os.path.isfile(checkpoint_path):
-        # IN NEWER PYTORCH VERSIONS LIKE IN KAGGLE IT DEFAULTS TO TRUE AND BLOCKS LOADING CHECKPOINT.PTH
-        # DUE TO SECUIRITY ISSUES. SO NEED TO SPECIFY weights_only=False, ALTERNATIVE SOLUTION IS :
-        # Tell PyTorch that argparse.Namespace is safe to load
-        #torch.serialization.add_safe_globals([argparse.Namespace])
-        checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+    if checkpoint_path:
+        if not os.path.isfile(checkpoint_path):
+            raise FileNotFoundError(
+                f"Checkpoint file not found: {checkpoint_path}. "
+                "Pass --resume with a valid .pth file path."
+            )
+        try:
+            # IN NEWER PYTORCH VERSIONS LIKE IN KAGGLE IT DEFAULTS TO TRUE AND BLOCKS LOADING CHECKPOINT.PTH
+            # DUE TO SECUIRITY ISSUES. SO NEED TO SPECIFY weights_only=False, ALTERNATIVE SOLUTION IS :
+            # Tell PyTorch that argparse.Namespace is safe to load
+            #torch.serialization.add_safe_globals([argparse.Namespace])
+            checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load checkpoint from {checkpoint_path}. "
+                f"The file may be corrupted or incomplete.\n"
+                f"Error: {type(e).__name__}: {e}"
+            )
 
         # A checkpoint saved from DistillDenoiser contains extra keys like
         # "teacher.*" and "vitkd_loss.*" that don't exist in a plain Denoiser.

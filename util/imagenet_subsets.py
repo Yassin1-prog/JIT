@@ -20,19 +20,23 @@ _SUBSET_INDICES: dict[int, list[int]] = {
 _CLS_KEY = "y_embedder.embedding_table.weight"
 
 
-def remap_teacher_y_embedder(state_dict: dict, class_num: int) -> dict:
+def remap_teacher_y_embedder(state_dict: dict, class_num: int, prefix: str = "") -> dict:
     """
     Remap a full-ImageNet teacher y_embedder to a smaller class subset.
 
     Selects the rows corresponding to the subset classes plus the null token
     and writes the result back into state_dict in-place.
 
+    Args:
+        prefix: key prefix to prepend (e.g. "net." for Denoiser checkpoints).
+
     Raises RuntimeError for unrecognised teacher/student class-count pairs.
     """
-    if _CLS_KEY not in state_dict:
+    key = prefix + _CLS_KEY
+    if key not in state_dict:
         return state_dict
 
-    tw = state_dict[_CLS_KEY]
+    tw = state_dict[key]
     expected = class_num + 1  # N classes + null token
 
     if tw.shape[0] == expected:
@@ -54,7 +58,7 @@ def remap_teacher_y_embedder(state_dict: dict, class_num: int) -> dict:
     indices = _SUBSET_INDICES[class_num]
     null_row = tw[-1].unsqueeze(0)  # last row is always the null token
     rows = torch.cat([tw[indices], null_row], dim=0)
-    state_dict[_CLS_KEY] = rows
+    state_dict[key] = rows
     print(
         f"[INFO] Remapped teacher y_embedder: {tw.shape[0]} → {rows.shape[0]} rows "
         f"using {class_num}-class ImageNet subset."

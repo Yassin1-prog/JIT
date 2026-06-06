@@ -50,21 +50,11 @@ git clone https://github.com/LTH14/JiT.git
 cd JiT
 ```
 
-A suitable [conda](https://conda.io/) environment named `jit` can be created and activated with:
+Install neccessary dependencies
 
 ```
-conda env create -f environment.yaml
-conda activate jit
+pip install -r JIT/requirements.txt
 ```
-
-If you get `undefined symbol: iJIT_NotifyEvent` when importing `torch`, simply
-
-```
-pip uninstall torch
-pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124
-```
-
-Check this [issue](https://github.com/conda/conda/issues/13812#issuecomment-2071445372) for more details.
 
 ### Training
 

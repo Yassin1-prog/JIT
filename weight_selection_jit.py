@@ -24,6 +24,7 @@ import argparse
 import torch
 
 from denoiser import Denoiser
+from util.imagenet_subsets import remap_teacher_y_embedder
 
 
 # Static config extracted from model_jit.py factory functions.
@@ -264,20 +265,7 @@ def main():
 
     # Load teacher and apply weight selection
     teacher_sd = load_teacher_state_dict(args.teacher_ckpt, use_ema=args.use_ema)
-
-    # Detect class count mismatch between teacher checkpoint and student
-    teacher_cls_key = 'net.y_embedder.embedding_table.weight'
-    if teacher_cls_key in teacher_sd:
-        teacher_num_classes = teacher_sd[teacher_cls_key].shape[0]
-        student_num_classes = args.class_num + 1  # +1 for null/unconditional class
-        if teacher_num_classes != student_num_classes:
-            print(f"[weight-init] WARNING: Class count mismatch — teacher has "
-                  f"{teacher_num_classes} classes, student has {student_num_classes} "
-                  f"(class_num={args.class_num} + 1 null class).\n"
-                  f"  y_embedder class embeddings will be sampled across mismatched "
-                  f"label spaces (e.g. ImageNet → CIFAR-10).\n"
-                  f"  These transferred embeddings will be meaningless for "
-                  f"zero-shot evaluation.")
+    teacher_sd = remap_teacher_y_embedder(teacher_sd, args.class_num, prefix="net.")
 
     selected = apply_weight_selection(teacher_sd, student, cross_patch_size=cross_patch)
 
